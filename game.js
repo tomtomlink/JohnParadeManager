@@ -155,7 +155,7 @@ function render() {
 
   // Musiciens (25)
   for (let i=0; i<FORMATION.length; i++) {
-    drawMusician(FORMATION[i].x, FORMATION[i].y, i === playerIdx);
+    drawMusician(ctx, FORMATION[i].x, FORMATION[i].y, 1.1, i === playerIdx);
   }
 
   // Score/timer
@@ -163,44 +163,97 @@ function render() {
   document.getElementById('score').textContent = `Score: ${gameState.score}`;
 }
 
-function drawMusician(x, y, isPlayer) {
-  // Remplacer ce bloc par un rendu image/sprite plus tard
+// Nouveau rendu : Musicien style fidèle à l'image PNG
+function drawMusician(ctx, x, y, scale = 1, isPlayer = false) {
   ctx.save();
   ctx.translate(x, y);
+  ctx.scale(scale, scale);
+
   // Ombre
-  ctx.globalAlpha = 0.25;
   ctx.beginPath();
-  ctx.ellipse(0, 24, 10, 4, 0, 0, 2*Math.PI);
+  ctx.ellipse(0, 18, 8, 4, 0, 0, 2 * Math.PI);
+  ctx.fillStyle = "rgba(0,0,0,0.18)";
+  ctx.fill();
+
+  // Pantalon noir (triangle)
+  ctx.beginPath();
+  ctx.moveTo(-5, 0); // gauche
+  ctx.lineTo(5, 0);  // droite
+  ctx.lineTo(0, 18); // bas
+  ctx.closePath();
   ctx.fillStyle = "#222";
   ctx.fill();
-  ctx.globalAlpha = 1.0;
-  // Corps (rouge)
+
+  // Chaussures
   ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(-7, 22);
-  ctx.lineTo(7, 22);
-  ctx.closePath();
-  ctx.fillStyle = isPlayer ? "#FFD700" : "#c00";
+  ctx.ellipse(-2, 18, 2, 1, 0, 0, 2 * Math.PI);
+  ctx.ellipse(2, 18, 2, 1, 0, 0, 2 * Math.PI);
+  ctx.fillStyle = "#111";
   ctx.fill();
-  // Tête (blanche)
+
+  // Veste rouge
   ctx.beginPath();
-  ctx.arc(0, -8, 7, 0, 2*Math.PI);
+  ctx.moveTo(-7, -8); // épaule gauche
+  ctx.lineTo(-3, 8);  // taille gauche
+  ctx.lineTo(3, 8);   // taille droite
+  ctx.lineTo(7, -8);  // épaule droite
+  ctx.lineTo(0, -12); // col
+  ctx.closePath();
+  ctx.fillStyle = isPlayer ? "#FFD700" : "#d00";
+  ctx.fill();
+
+  // Col blanc
+  ctx.beginPath();
+  ctx.moveTo(-2, -9);
+  ctx.lineTo(2, -9);
+  ctx.lineTo(0, -12);
+  ctx.closePath();
   ctx.fillStyle = "#fff";
   ctx.fill();
-  // Casque (noir)
+
+  // Manches blanches
   ctx.beginPath();
-  ctx.arc(0, -15, 5, 0, Math.PI, true);
-  ctx.lineTo(-5, -15); ctx.lineTo(-5, -18); ctx.lineTo(5, -18); ctx.lineTo(5, -15);
+  ctx.moveTo(-7, -8);
+  ctx.lineTo(-10, -3);
+  ctx.lineTo(-7, 3);
+  ctx.lineTo(-5, -6);
   ctx.closePath();
-  ctx.fillStyle = "#222";
+  ctx.moveTo(7, -8);
+  ctx.lineTo(10, -3);
+  ctx.lineTo(7, 3);
+  ctx.lineTo(5, -6);
+  ctx.closePath();
+  ctx.fillStyle = "#fff";
   ctx.fill();
-  // Instrument (jaune)
+
+  // Tête
   ctx.beginPath();
-  ctx.moveTo(4, -5);
-  ctx.lineTo(18, -1);
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = "#FFD700";
-  ctx.stroke();
+  ctx.arc(0, -14, 5, 0, 2 * Math.PI);
+  ctx.fillStyle = "#fbe2b6";
+  ctx.fill();
+
+  // Chapeau haut de forme (blanc)
+  ctx.beginPath();
+  ctx.ellipse(0, -18, 6, 3, 0, 0, 2 * Math.PI);
+  ctx.fillStyle = "#fff";
+  ctx.fill();
+  ctx.beginPath();
+  ctx.rect(-4, -28, 8, 10);
+  ctx.fillStyle = "#fff";
+  ctx.fill();
+
+  // Bandeau noir du chapeau
+  ctx.fillStyle = "#111";
+  ctx.fillRect(-4, -22, 8, 2);
+
+  // Liseré rouge haut chapeau
+  ctx.fillStyle = "#d00";
+  ctx.fillRect(-4, -28, 8, 2);
+
+  // Détail bouton veste
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(-1, -5, 2, 9);
+
   ctx.restore();
 }
 
