@@ -22,6 +22,7 @@ window.onload = () => {
   canvas = document.getElementById('game-canvas');
   ctx = canvas.getContext('2d');
   document.getElementById('play-btn').onclick = startGame;
+
   // "Sélection du musicien" désactivé pour l'instant
 
   resizeCanvas();
@@ -47,7 +48,13 @@ function startGame() {
     arrows: [],
     timer: 0,
     score: 0,
-    running: true
+    running: true,
+    animating: false, // Ajouté
+    moveStartTime: 0,
+    moveFrom: [],
+    moveTo: [],
+    playerFrom: {x: 0, y: 0},
+    playerTo: {x: 0, y: 0}
   };
   initLevel(gameState.level);
   gameLoop();
@@ -88,6 +95,7 @@ function initLevel(level) {
   gameState.currentMove = 0;
   gameState.moveStart = performance.now() + PREVIEW_ARROW_MS;
   gameState.nextArrow = true;
+  gameState.animating = false;
 }
 
 function gameLoop() {
@@ -100,28 +108,63 @@ function gameLoop() {
 }
 
 function update() {
-  // Gestion du mouvement de formation
+  // Gestion du mouvement de formation fluide
   let now = performance.now();
-  if (gameState.currentMove < gameState.moves.length) {
+
+  // Lancement du mouvement
+  if (!gameState.animating && gameState.currentMove < gameState.moves.length) {
     if (gameState.nextArrow && now > gameState.moveStart - PREVIEW_ARROW_MS) {
       // Affiche la flèche de direction
       showArrow(gameState.moves[gameState.currentMove]);
       gameState.nextArrow = false;
     }
     if (now > gameState.moveStart) {
-      // Déplacement de la formation
-      for (let i = 0; i < FORMATION.length; i++) {
-        FORMATION[i].x += gameState.moves[gameState.currentMove].dx;
-        FORMATION[i].y += gameState.moves[gameState.currentMove].dy;
-      }
-      // Maj du joueur aussi
-      gameState.player.x += gameState.moves[gameState.currentMove].dx;
-      gameState.player.y += gameState.moves[gameState.currentMove].dy;
-      gameState.currentMove++;
-      gameState.moveStart = now + MOVE_DURATION;
-      gameState.nextArrow = true;
+      // Prépare l'animation
+      gameState.animating = true;
+      gameState.moveStartTime = now;
+      // Enregistre positions de départ et d'arrivée
+      gameState.moveFrom = FORMATION.map(m => ({x: m.x, y: m.y}));
+      let move = gameState.moves[gameState.currentMove];
+      gameState.moveTo = FORMATION.map(m => ({
+        x: m.x + move.dx,
+        y: m.y + move.dy
+      }));
+      // Joueur
+      gameState.playerFrom = {x: gameState.player.x, y: gameState.player.y};
+      gameState.playerTo = {
+        x: gameState.player.x + move.dx,
+        y: gameState.player.y + move.dy
+      };
     }
   }
+
+  // Animation en cours
+  if (gameState.animating) {
+    let p = Math.min(1, (now - gameState.moveStartTime) / MOVE_DURATION);
+    // Interpolation de chaque musicien
+    for (let i = 0; i < FORMATION.length; i++) {
+      FORMATION[i].x = gameState.moveFrom[i].x + (gameState.moveTo[i].x - gameState.moveFrom[i].x) * p;
+      FORMATION[i].y = gameState.moveFrom[i].y + (gameState.moveTo[i].y - gameState.moveFrom[i].y) * p;
+    }
+    // Joueur
+    gameState.player.x = gameState.playerFrom.x + (gameState.playerTo.x - gameState.playerFrom.x) * p;
+    gameState.player.y = gameState.playerFrom.y + (gameState.playerTo.y - gameState.playerFrom.y) * p;
+
+    if (p >= 1) {
+      gameState.animating = false;
+      gameState.currentMove++;
+      gameState.moveStart = now + PREVIEW_ARROW_MS;
+      gameState.nextArrow = true;
+      // Corrige la position finale
+      for (let i = 0; i < FORMATION.length; i++) {
+        FORMATION[i].x = gameState.moveTo[i].x;
+        FORMATION[i].y = gameState.moveTo[i].y;
+      }
+      gameState.player.x = gameState.playerTo.x;
+      gameState.player.y = gameState.playerTo.y;
+    }
+  }
+
   // Timer hors zone
   if (!isPlayerInZone()) {
     gameState.player.outZoneMs += 16;
