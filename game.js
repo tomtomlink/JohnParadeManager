@@ -17,6 +17,20 @@ const colors = {
 };
 
 let canvas, ctx, gameState = null, assets = {};
+let playerTarget = {x: 0, y: 0}; // <-- Ajout pour suivi fluide
+
+// Overlay management
+function showOverlay(message, buttonText = "Continuer") {
+  document.getElementById('overlay-message').textContent = message;
+  document.getElementById('overlay-button').textContent = buttonText;
+  document.getElementById('game-overlay').style.display = 'flex';
+  gameState.running = false; // Pause the game
+}
+
+function hideOverlay() {
+  document.getElementById('game-overlay').style.display = 'none';
+  gameState.running = true; // Resume the game
+}
 
 window.onload = () => {
   canvas = document.getElementById('game-canvas');
@@ -41,18 +55,30 @@ function startGame() {
   initFormation();
   gameState = {
     playerIdx: 12, // centre, pour l'instant
-    player: {x: 0, y: 0, outZoneMs: 0},
+    player: {x: FORMATION[12].x, y: FORMATION[12].y, outZoneMs: 0},
     moveIdx: 0,
     level: 1,
     arrows: [],
     timer: 0,
     score: 0,
-    running: true
+    running: true,
+    animating: false,
+    moveStartTime: 0,
+    moveFrom: [],
+    moveTo: [],
+    playerFrom: {x: 0, y: 0},
+    playerTo: {x: 0, y: 0},
+    moveDuration: MOVE_DURATION
   };
+  playerTarget = {x: FORMATION[12].x, y: FORMATION[12].y}; // Initialisation cible
+  
+  // Set up overlay button click handler
+  document.getElementById('overlay-button').onclick = handleOverlayClick;
+  
   initLevel(gameState.level);
   gameLoop();
   canvas.addEventListener('pointerdown', handlePointer, {passive: false});
-  canvas.addEventListener('pointermove', handlePointer, {passive: false});
+  canvas.addEventListener('pointermove', handlePointer, {passive: true}); // FLUIDE : déclenché en continu
   canvas.addEventListener('pointerup', handlePointer, {passive: false});
 }
 
@@ -73,21 +99,54 @@ function initFormation() {
 
 // Génère les déplacements (pour le niveau)
 function initLevel(level) {
-  // Ex : droite, bas, gauche, haut...
-  const moves = [
+  // Base moves: right, down, left, up
+  const baseMoves = [
     {dx: 35, dy: 0},
     {dx: 0, dy: 35},
     {dx: -35, dy: 0},
     {dx: 0, dy: -35}
   ];
+  
+  // Add diagonal moves for higher levels
+  const diagonalMoves = [
+    {dx: 25, dy: 25},   // down-right
+    {dx: -25, dy: 25},  // down-left
+    {dx: 25, dy: -25},  // up-right
+    {dx: -25, dy: -25}  // up-left
+  ];
+  
   gameState.moves = [];
-  for (let i = 0; i < level + 2; i++) {
-    let move = moves[i % moves.length];
+  
+  // Number of moves increases with level
+  const numMoves = level + 2;
+  
+  for (let i = 0; i < numMoves; i++) {
+    let move;
+    if (level <= 3) {
+      // Early levels: only cardinal directions
+      move = baseMoves[i % baseMoves.length];
+    } else if (level <= 6) {
+      // Mid levels: mix of cardinal and some random
+      const allMoves = [...baseMoves];
+      if (Math.random() < 0.3) { // 30% chance of diagonal
+        allMoves.push(...diagonalMoves);
+      }
+      move = allMoves[Math.floor(Math.random() * allMoves.length)];
+    } else {
+      // High levels: more random and unpredictable
+      const allMoves = [...baseMoves, ...diagonalMoves];
+      move = allMoves[Math.floor(Math.random() * allMoves.length)];
+    }
     gameState.moves.push(move);
   }
+  
   gameState.currentMove = 0;
   gameState.moveStart = performance.now() + PREVIEW_ARROW_MS;
   gameState.nextArrow = true;
+  gameState.animating = false;
+  
+  // Update move duration based on level (gets faster)
+  gameState.moveDuration = Math.max(800, MOVE_DURATION - (level - 1) * 150);
 }
 
 function gameLoop() {
@@ -100,28 +159,67 @@ function gameLoop() {
 }
 
 function update() {
-  // Gestion du mouvement de formation
   let now = performance.now();
-  if (gameState.currentMove < gameState.moves.length) {
+
+  // Gestion animation formation
+  if (!gameState.animating && gameState.currentMove < gameState.moves.length) {
     if (gameState.nextArrow && now > gameState.moveStart - PREVIEW_ARROW_MS) {
-      // Affiche la flèche de direction
       showArrow(gameState.moves[gameState.currentMove]);
       gameState.nextArrow = false;
     }
     if (now > gameState.moveStart) {
-      // Déplacement de la formation
-      for (let i = 0; i < FORMATION.length; i++) {
-        FORMATION[i].x += gameState.moves[gameState.currentMove].dx;
-        FORMATION[i].y += gameState.moves[gameState.currentMove].dy;
-      }
-      // Maj du joueur aussi
-      gameState.player.x += gameState.moves[gameState.currentMove].dx;
-      gameState.player.y += gameState.moves[gameState.currentMove].dy;
-      gameState.currentMove++;
-      gameState.moveStart = now + MOVE_DURATION;
-      gameState.nextArrow = true;
+      gameState.animating = true;
+      gameState.moveStartTime = now;
+      gameState.moveFrom = FORMATION.map(m => ({x: m.x, y: m.y}));
+      let move = gameState.moves[gameState.currentMove];
+      gameState.moveTo = FORMATION.map(m => ({
+        x: m.x + move.dx,
+        y: m.y + move.dy
+      }));
+      gameState.playerFrom = {x: gameState.player.x, y: gameState.player.y};
+      gameState.playerTo = {
+        x: gameState.player.x + move.dx,
+        y: gameState.player.y + move.dy
+      };
+      // On déplace aussi la cible pour que le joueur reste "au même endroit relatif"
+      playerTarget.x += move.dx;
+      playerTarget.y += move.dy;
     }
   }
+
+  if (gameState.animating) {
+    let p = Math.min(1, (now - gameState.moveStartTime) / gameState.moveDuration);
+    for (let i = 0; i < FORMATION.length; i++) {
+      FORMATION[i].x = gameState.moveFrom[i].x + (gameState.moveTo[i].x - gameState.moveFrom[i].x) * p;
+      FORMATION[i].y = gameState.moveFrom[i].y + (gameState.moveTo[i].y - gameState.moveFrom[i].y) * p;
+    }
+    gameState.player.x = gameState.playerFrom.x + (gameState.playerTo.x - gameState.playerFrom.x) * p;
+    gameState.player.y = gameState.playerFrom.y + (gameState.playerTo.y - gameState.playerFrom.y) * p;
+    if (p >= 1) {
+      gameState.animating = false;
+      gameState.currentMove++;
+      gameState.moveStart = now + PREVIEW_ARROW_MS;
+      gameState.nextArrow = true;
+      for (let i = 0; i < FORMATION.length; i++) {
+        FORMATION[i].x = gameState.moveTo[i].x;
+        FORMATION[i].y = gameState.moveTo[i].y;
+      }
+      gameState.player.x = gameState.playerTo.x;
+      gameState.player.y = gameState.playerTo.y;
+      
+      // Check if level is completed
+      if (gameState.currentMove >= gameState.moves.length) {
+        completeLevel();
+        return;
+      }
+    }
+  }
+
+  // --- SUIVI FLUIDE DU CURSEUR/DOIGT ---
+  const FOLLOW_SPEED = 0.18; // 0.15~0.2 = feeling naturel, 1 = instantané
+  gameState.player.x += (playerTarget.x - gameState.player.x) * FOLLOW_SPEED;
+  gameState.player.y += (playerTarget.y - gameState.player.y) * FOLLOW_SPEED;
+
   // Timer hors zone
   if (!isPlayerInZone()) {
     gameState.player.outZoneMs += 16;
@@ -159,7 +257,7 @@ function render() {
   }
 
   // Score/timer
-  document.getElementById('timer').textContent = `Temps hors zone: ${(gameState.player.outZoneMs/1000).toFixed(2)}s`;
+  document.getElementById('timer').textContent = `Niveau ${gameState.level} - Temps hors zone: ${(gameState.player.outZoneMs/1000).toFixed(2)}s`;
   document.getElementById('score').textContent = `Score: ${gameState.score}`;
 }
 
@@ -281,8 +379,49 @@ function showArrow(move) {
   // À compléter : affichage d'une flèche directionnelle sur le canvas
 }
 
+function completeLevel() {
+  gameState.running = false;
+  
+  if (gameState.level >= 10) {
+    // Game completed!
+    showOverlay("Bravo ! Tu as terminé les 10 parades. Clique pour rejouer", "Rejouer");
+  } else {
+    // Level completed, move to next
+    showOverlay("Bravo! On passe à la prochaine parade", "Continuer");
+  }
+}
+
+function handleOverlayClick() {
+  const overlayMessage = document.getElementById('overlay-message').textContent;
+  
+  if (overlayMessage.includes("rejouer") || overlayMessage.includes("terrine")) {
+    // Restart the game
+    hideOverlay();
+    location.reload();
+  } else {
+    // Continue to next level
+    gameState.level++;
+    hideOverlay();
+    
+    // Reset player position to formation center
+    gameState.player.x = FORMATION[gameState.playerIdx].x;
+    gameState.player.y = FORMATION[gameState.playerIdx].y;
+    playerTarget.x = gameState.player.x;
+    playerTarget.y = gameState.player.y;
+    // Reset out of zone timer
+    gameState.player.outZoneMs = 0;
+    
+    // Initialize new level
+    initLevel(gameState.level);
+    
+    // Ensure game loop is running
+    if (gameState.running) {
+      requestAnimationFrame(gameLoop);
+    }
+  }
+}
+
 function endGame() {
   gameState.running = false;
-  alert("Perdu ! Vous avez quitté votre place trop longtemps.");
-  location.reload();
+  showOverlay("T'es une terrine!", "Recommencer");
 }
