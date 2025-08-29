@@ -9,6 +9,7 @@ const ZONE_RADIUS = 22; // pixels, tight fit
 const MOVE_DURATION = 2000; // ms for each move (base)
 const PREVIEW_ARROW_MS = 1000; // show arrow before move
 const MAX_OUT_ZONE_MS = 5000; // 5 seconds
+const MIN_DIST = 32; // distance minimum entre musiciens (pour éviter la superposition)
 
 const colors = {
   pelouse: ["#52b06d", "#2e944b", "#b1e2b3"],
@@ -161,6 +162,8 @@ function initLevel(level) {
         }
         movesStep.push({dx, dy});
       }
+      // Correction anti-collision avant d'enregistrer les positions cibles
+      movesStep = resolveCollisions(movesStep, FORMATION.map(m => ({x: m.x, y: m.y})));
       gameState.moves.push(movesStep);
     }
   }
@@ -174,6 +177,45 @@ function initLevel(level) {
   // Décroissance exponentielle, mini 250ms
   const SPEEDUP = 0.68;
   gameState.moveDuration = Math.max(250, MOVE_DURATION * Math.pow(SPEEDUP, level-1));
+}
+
+// Correction anti-collision : si positions cibles trop proches, on repousse 
+function resolveCollisions(movesStep, startPositions) {
+  let newMoves = movesStep.map((m, i) => ({dx: m.dx, dy: m.dy}));
+  let newPos = startPositions.map((pos, i) => ({
+    x: pos.x + movesStep[i].dx,
+    y: pos.y + movesStep[i].dy
+  }));
+
+  // Boucle de correction
+  let changed = true, iter = 0;
+  while (changed && iter < 10) {
+    changed = false;
+    for (let i = 0; i < newPos.length; i++) {
+      for (let j = i + 1; j < newPos.length; j++) {
+        let dx = newPos[j].x - newPos[i].x;
+        let dy = newPos[j].y - newPos[i].y;
+        let d = Math.sqrt(dx*dx + dy*dy);
+        if (d < MIN_DIST) {
+          changed = true;
+          // Repousse les deux musiciens l'un de l'autre (équitablement)
+          let force = (MIN_DIST - d) / 2;
+          let nx = dx / (d || 1), ny = dy / (d || 1);
+          newPos[i].x -= nx * force;
+          newPos[i].y -= ny * force;
+          newPos[j].x += nx * force;
+          newPos[j].y += ny * force;
+          // MAJ les moves pour la prochaine animation
+          newMoves[i].dx = newPos[i].x - startPositions[i].x;
+          newMoves[i].dy = newPos[i].y - startPositions[i].y;
+          newMoves[j].dx = newPos[j].x - startPositions[j].x;
+          newMoves[j].dy = newPos[j].y - startPositions[j].y;
+        }
+      }
+    }
+    iter++;
+  }
+  return newMoves;
 }
 
 function gameLoop() {
@@ -377,6 +419,8 @@ function handlePointer(e) {
   let rect = canvas.getBoundingClientRect();
   let x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
   let y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+
+  // Correction : ne jamais bloquer l'accès à la zone jaune pour le curseur, à tous les niveaux
   playerTarget.x = Math.max(30, Math.min(CANVAS_W-30, x));
   playerTarget.y = Math.max(30, Math.min(CANVAS_H-30, y));
 }
