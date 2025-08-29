@@ -4,22 +4,48 @@ const CANVAS_W = 360, CANVAS_H = 600;
 const MUSICIANS = 25;
 const ROWS = 5, COLS = 5;
 const FORMATION = []; // Will be filled as a grid
-const MUSICIAN_SIZE = 32; // pixels
-const ZONE_RADIUS = 22; // pixels, tight fit
+const MUSICIAN_SIZE = 32; // pixels (sprite design scale)
+const PNJ_RADIUS = 12; // rayon de "sécurité" visuel pour PNJ
+const ZONE_RADIUS = 22; // pixels, zone jaune du joueur
 const MOVE_DURATION = 2000; // ms for each move (base)
-const PREVIEW_ARROW_MS = 1000; // show arrow before move
+const PREVIEW_ARROW_MS = 800; // show arrow before move
 const MAX_OUT_ZONE_MS = 5000; // 5 seconds
-const MIN_DIST = 32; // distance minimum entre musiciens (pour éviter la superposition)
+const MIN_DIST = 26; // distance min entre PNJ (peuvent se frôler mais pas se toucher)
+
+// Délimitation de la zone de jeu (rectangle central sur la pelouse)
+const PAD_LR = 50;   // marges gauche/droite
+const PAD_TOP = 90;  // marge haute
+const PAD_BOTTOM = 60; // marge basse
 
 const colors = {
   pelouse: ["#52b06d", "#2e944b", "#b1e2b3"],
+  pelouseDark: "#3c8b55",
   line: "#f6f6f6",
-  zone: "rgba(255,255,0,0.25)",
+  zone: "rgba(255,255,0,0.28)",
+  crowd: ["#c57b57","#e0b089","#a06c49","#8aa4c8","#d7a1a7","#9b9b9b"],
 };
 
 let canvas, ctx, gameState = null, assets = {};
 let playerTarget = {x: 0, y: 0}; // Pour suivi fluide
 let musicAudio = null; // Pour la musique
+
+// Helpers bounds
+function getBounds() {
+  return {
+    left: PAD_LR,
+    right: CANVAS_W - PAD_LR,
+    top: PAD_TOP,
+    bottom: CANVAS_H - PAD_BOTTOM
+  };
+}
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function clampIntoBounds(pos, margin) {
+  const b = getBounds();
+  return {
+    x: clamp(pos.x, b.left + margin, b.right - margin),
+    y: clamp(pos.y, b.top + margin, b.bottom - margin)
+  };
+}
 
 // Overlay management
 function showOverlay(message, buttonText = "Continuer") {
@@ -48,8 +74,14 @@ window.onload = () => {
 };
 
 function resizeCanvas() {
-  canvas.width = CANVAS_W;
-  canvas.height = CANVAS_H;
+  // Canvas haute résolution (retina) pour des sprites plus nets
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  canvas.style.width = CANVAS_W + 'px';
+  canvas.style.height = CANVAS_H + 'px';
+  canvas.width = Math.round(CANVAS_W * dpr);
+  canvas.height = Math.round(CANVAS_H * dpr);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
 }
 
 function startGame() {
@@ -71,9 +103,14 @@ function startGame() {
     moveTo: [],
     playerFrom: {x: 0, y: 0},
     playerTo: {x: 0, y: 0},
-    moveDuration: MOVE_DURATION
+    moveDuration: MOVE_DURATION,
+    currentMove: 0,
+    nextArrow: true,
+    moveStart: performance.now() + PREVIEW_ARROW_MS,
+    moves: []
   };
-  playerTarget = {x: FORMATION[12].x, y: FORMATION[12].y};
+  // Cible initiale clamped dans la zone de jeu
+  playerTarget = clampIntoBounds({x: FORMATION[12].x, y: FORMATION[12].y}, 30);
 
   // Set up overlay button click handler
   document.getElementById('overlay-button').onclick = handleOverlayClick;
@@ -94,13 +131,15 @@ function startGame() {
 // Génère la formation en losange (5x5)
 function initFormation() {
   FORMATION.length = 0;
-  let centerX = CANVAS_W/2, startY = 130;
+  let centerX = (getBounds().left + getBounds().right) / 2;
+  let startY = clamp(PAD_TOP + 40, PAD_TOP + 40, CANVAS_H - PAD_BOTTOM - 40);
   let spacing = 40;
   for (let row=0; row<ROWS; row++) {
     for (let col=0; col<COLS; col++) {
       let x = centerX + (col-2)*spacing + (Math.abs(row-2)*spacing/2)*(col-2>0?1:-1);
       let y = startY + row*spacing;
-      FORMATION.push({x, y});
+      let clamped = clampIntoBounds({x,y}, PNJ_RADIUS);
+      FORMATION.push(clamped);
     }
   }
 }
@@ -142,7 +181,7 @@ function initLevel(level) {
       }
       gameState.moves.push(Array(FORMATION.length).fill(move));
     } else {
-      // À partir du niveau 2 : chaque PNJ a sa propre direction (ex : cercle déformable)
+      // À partir du niveau 2 : chorégraphies individuelles (cercle, spirale, étoile)
       let movesStep = [];
       let shape = (level < 4) ? "circle" : (level < 7 ? "spiral" : "star");
       for (let i = 0; i < FORMATION.length; i++) {
@@ -162,8 +201,6 @@ function initLevel(level) {
         }
         movesStep.push({dx, dy});
       }
-      // Correction anti-collision avant d'enregistrer les positions cibles
-      movesStep = resolveCollisions(movesStep, FORMATION.map(m => ({x: m.x, y: m.y})));
       gameState.moves.push(movesStep);
     }
   }
@@ -173,49 +210,49 @@ function initLevel(level) {
   gameState.nextArrow = true;
   gameState.animating = false;
 
-  // Vitesse de déplacement : accélère plus fort à chaque niveau
-  // Décroissance exponentielle, mini 250ms
+  // Vitesse de déplacement : accélère plus fort à chaque niveau (expo), mini 250ms
   const SPEEDUP = 0.68;
   gameState.moveDuration = Math.max(250, MOVE_DURATION * Math.pow(SPEEDUP, level-1));
 }
 
-// Correction anti-collision : si positions cibles trop proches, on repousse 
-function resolveCollisions(movesStep, startPositions) {
-  let newMoves = movesStep.map((m, i) => ({dx: m.dx, dy: m.dy}));
-  let newPos = startPositions.map((pos, i) => ({
-    x: pos.x + movesStep[i].dx,
-    y: pos.y + movesStep[i].dy
-  }));
+// Ajuste les cibles pour éviter les collisions et rester dans les limites
+function resolveTargets(fromPositions, targetPositions) {
+  const N = targetPositions.length;
+  let newPos = targetPositions.map(p => ({x: p.x, y: p.y}));
 
-  // Boucle de correction
+  // 1) Clamp initial vers les bords (avec marge variable)
+  for (let i = 0; i < N; i++) {
+    const margin = (i === gameState.playerIdx) ? ZONE_RADIUS : PNJ_RADIUS;
+    newPos[i] = clampIntoBounds(newPos[i], margin);
+  }
+
+  // 2) Itérations de séparation des PNJ trop proches + re-clamp
   let changed = true, iter = 0;
-  while (changed && iter < 10) {
+  while (changed && iter < 12) {
     changed = false;
-    for (let i = 0; i < newPos.length; i++) {
-      for (let j = i + 1; j < newPos.length; j++) {
+    for (let i = 0; i < N; i++) {
+      for (let j = i + 1; j < N; j++) {
         let dx = newPos[j].x - newPos[i].x;
         let dy = newPos[j].y - newPos[i].y;
-        let d = Math.sqrt(dx*dx + dy*dy);
+        let d = Math.hypot(dx, dy);
         if (d < MIN_DIST) {
           changed = true;
-          // Repousse les deux musiciens l'un de l'autre (équitablement)
-          let force = (MIN_DIST - d) / 2;
           let nx = dx / (d || 1), ny = dy / (d || 1);
-          newPos[i].x -= nx * force;
-          newPos[i].y -= ny * force;
-          newPos[j].x += nx * force;
-          newPos[j].y += ny * force;
-          // MAJ les moves pour la prochaine animation
-          newMoves[i].dx = newPos[i].x - startPositions[i].x;
-          newMoves[i].dy = newPos[i].y - startPositions[i].y;
-          newMoves[j].dx = newPos[j].x - startPositions[j].x;
-          newMoves[j].dy = newPos[j].y - startPositions[j].y;
+          let push = (MIN_DIST - d) / 2;
+          // Déplace équitablement
+          newPos[i].x -= nx * push; newPos[i].y -= ny * push;
+          newPos[j].x += nx * push; newPos[j].y += ny * push;
+          // Re-clamp après déplacement
+          newPos[i] = clampIntoBounds(newPos[i], (i===gameState.playerIdx)? ZONE_RADIUS : PNJ_RADIUS);
+          newPos[j] = clampIntoBounds(newPos[j], (j===gameState.playerIdx)? ZONE_RADIUS : PNJ_RADIUS);
         }
       }
     }
     iter++;
   }
-  return newMoves;
+
+  // 3) Retour
+  return newPos;
 }
 
 function gameLoop() {
@@ -239,21 +276,31 @@ function update() {
       gameState.moveStartTime = now;
       gameState.moveFrom = FORMATION.map(m => ({x: m.x, y: m.y}));
 
-      let movesStep = gameState.moves[gameState.currentMove];
-      // Mouvement individuel ou collectif
-      gameState.moveTo = FORMATION.map((m, i) => ({
+      const movesStep = gameState.moves[gameState.currentMove];
+
+      // Cibles brutes
+      const rawTargets = FORMATION.map((m, i) => ({
         x: m.x + movesStep[i].dx,
         y: m.y + movesStep[i].dy
       }));
+
+      // Ajustement collisions + limites
+      const adjustedTargets = resolveTargets(gameState.moveFrom, rawTargets);
+      gameState.moveTo = adjustedTargets;
+
       gameState.playerFrom = {x: gameState.player.x, y: gameState.player.y};
-      // Player suit le move du slot central
+      // Delta réel appliqué au slot du joueur (après ajustement)
+      const iP = gameState.playerIdx;
+      const dpx = adjustedTargets[iP].x - gameState.moveFrom[iP].x;
+      const dpy = adjustedTargets[iP].y - gameState.moveFrom[iP].y;
       gameState.playerTo = {
-        x: gameState.player.x + movesStep[gameState.playerIdx].dx,
-        y: gameState.player.y + movesStep[gameState.playerIdx].dy
+        x: gameState.player.x + dpx,
+        y: gameState.player.y + dpy
       };
-      // On déplace aussi la cible pour que le joueur reste "au même endroit relatif"
-      playerTarget.x += movesStep[gameState.playerIdx].dx;
-      playerTarget.y += movesStep[gameState.playerIdx].dy;
+
+      // Déplace aussi la cible, clamp dans la zone
+      const newTarget = { x: playerTarget.x + dpx, y: playerTarget.y + dpy };
+      Object.assign(playerTarget, clampIntoBounds(newTarget, 30));
     }
   }
 
@@ -270,6 +317,8 @@ function update() {
       gameState.currentMove++;
       gameState.moveStart = now + PREVIEW_ARROW_MS;
       gameState.nextArrow = true;
+
+      // Verrouille positions finales (déjà dans la zone)
       for (let i = 0; i < FORMATION.length; i++) {
         FORMATION[i].x = gameState.moveTo[i].x;
         FORMATION[i].y = gameState.moveTo[i].y;
@@ -286,9 +335,15 @@ function update() {
   }
 
   // --- SUIVI FLUIDE DU CURSEUR/DOIGT ---
-  const FOLLOW_SPEED = 0.18;
+  const FOLLOW_SPEED = 0.2; // un peu plus réactif
+  // Clamp target avant d'aller vers lui
+  Object.assign(playerTarget, clampIntoBounds(playerTarget, 30));
   gameState.player.x += (playerTarget.x - gameState.player.x) * FOLLOW_SPEED;
   gameState.player.y += (playerTarget.y - gameState.player.y) * FOLLOW_SPEED;
+  // Clamp position joueur au cas où
+  const clampedPlayer = clampIntoBounds({x: gameState.player.x, y: gameState.player.y}, 30);
+  gameState.player.x = clampedPlayer.x;
+  gameState.player.y = clampedPlayer.y;
 
   // Timer hors zone
   if (!isPlayerInZone()) {
@@ -303,27 +358,45 @@ function update() {
 }
 
 function render() {
+  // Fond pelouse
   ctx.fillStyle = colors.pelouse[0];
   ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // Zone de jeu (rectangulaire) bien délimitée
+  const b = getBounds();
+
+  // Pelouse plus sombre en dehors de la zone de jeu
+  ctx.fillStyle = colors.pelouseDark;
+  // Haut
+  ctx.fillRect(0, 0, CANVAS_W, b.top);
+  // Bas
+  ctx.fillRect(0, b.bottom, CANVAS_W, CANVAS_H - b.bottom);
+  // Gauche
+  ctx.fillRect(0, b.top, b.left, b.bottom - b.top);
+  // Droite
+  ctx.fillRect(b.right, b.top, CANVAS_W - b.right, b.bottom - b.top);
+
+  // Lignes blanches du terrain
   ctx.strokeStyle = colors.line;
   ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(50,0); ctx.lineTo(50,canvas.height);
-  ctx.moveTo(canvas.width-50,0); ctx.lineTo(canvas.width-50,canvas.height);
-  ctx.stroke();
+  ctx.strokeRect(b.left, b.top, b.right - b.left, b.bottom - b.top);
 
-  let playerIdx = gameState.playerIdx;
+  // Public autour de la zone de jeu
+  drawCrowd();
+
+  // Zone jaune du slot du joueur (ne sort jamais car FORMATION est clampé)
+  const playerIdx = gameState.playerIdx;
   ctx.beginPath();
   ctx.arc(FORMATION[playerIdx].x, FORMATION[playerIdx].y, ZONE_RADIUS, 0, 2*Math.PI);
   ctx.fillStyle = colors.zone;
   ctx.fill();
 
+  // Dessin des musiciens (sprites plus "grands" => meilleur rendu visuel)
   for (let i=0; i<FORMATION.length; i++) {
-    // Pour que le "player" suive le curseur, on dessine sa position réelle
     if (i === playerIdx) {
-      drawMusician(ctx, gameState.player.x, gameState.player.y, 1.1, true);
+      drawMusician(ctx, gameState.player.x, gameState.player.y, 1.3, true);
     } else {
-      drawMusician(ctx, FORMATION[i].x, FORMATION[i].y, 1.1, false);
+      drawMusician(ctx, FORMATION[i].x, FORMATION[i].y, 1.2, false);
     }
   }
 
@@ -331,16 +404,18 @@ function render() {
   document.getElementById('score').textContent = `Score: ${gameState.score}`;
 }
 
-function drawMusician(ctx, x, y, scale = 1, isPlayer = false) {
+function drawMusician(ctx, x, y, scale = 1.2, isPlayer = false) {
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, scale);
 
+  // Ombre
   ctx.beginPath();
   ctx.ellipse(0, 18, 8, 4, 0, 0, 2 * Math.PI);
   ctx.fillStyle = "rgba(0,0,0,0.18)";
   ctx.fill();
 
+  // Corps
   ctx.beginPath();
   ctx.moveTo(-5, 0);
   ctx.lineTo(5, 0);
@@ -349,12 +424,14 @@ function drawMusician(ctx, x, y, scale = 1, isPlayer = false) {
   ctx.fillStyle = "#222";
   ctx.fill();
 
+  // Pieds
   ctx.beginPath();
   ctx.ellipse(-2, 18, 2, 1, 0, 0, 2 * Math.PI);
   ctx.ellipse(2, 18, 2, 1, 0, 0, 2 * Math.PI);
   ctx.fillStyle = "#111";
   ctx.fill();
 
+  // Veste
   ctx.beginPath();
   ctx.moveTo(-7, -8);
   ctx.lineTo(-3, 8);
@@ -365,6 +442,7 @@ function drawMusician(ctx, x, y, scale = 1, isPlayer = false) {
   ctx.fillStyle = isPlayer ? "#FFD700" : "#d00";
   ctx.fill();
 
+  // Revers
   ctx.beginPath();
   ctx.moveTo(-2, -9);
   ctx.lineTo(2, -9);
@@ -373,6 +451,7 @@ function drawMusician(ctx, x, y, scale = 1, isPlayer = false) {
   ctx.fillStyle = "#fff";
   ctx.fill();
 
+  // Épaules
   ctx.beginPath();
   ctx.moveTo(-7, -8);
   ctx.lineTo(-10, -3);
@@ -387,11 +466,13 @@ function drawMusician(ctx, x, y, scale = 1, isPlayer = false) {
   ctx.fillStyle = "#fff";
   ctx.fill();
 
+  // Tête
   ctx.beginPath();
   ctx.arc(0, -14, 5, 0, 2 * Math.PI);
   ctx.fillStyle = "#fbe2b6";
   ctx.fill();
 
+  // Chapeau
   ctx.beginPath();
   ctx.ellipse(0, -18, 6, 3, 0, 0, 2 * Math.PI);
   ctx.fillStyle = "#fff";
@@ -401,16 +482,49 @@ function drawMusician(ctx, x, y, scale = 1, isPlayer = false) {
   ctx.fillStyle = "#fff";
   ctx.fill();
 
+  // Details chapeau
   ctx.fillStyle = "#111";
   ctx.fillRect(-4, -22, 8, 2);
-
   ctx.fillStyle = "#d00";
   ctx.fillRect(-4, -28, 8, 2);
 
+  // Instrument (détail)
   ctx.fillStyle = "#fff";
   ctx.fillRect(-1, -5, 2, 9);
 
   ctx.restore();
+}
+
+// Dessine le public autour de la zone de jeu
+function drawCrowd() {
+  const b = getBounds();
+  // Définir 4 bandes: haut, bas, gauche, droite
+  drawCrowdRegion(0, 0, CANVAS_W, b.top, 12, 10); // haut
+  drawCrowdRegion(0, b.bottom, CANVAS_W, CANVAS_H, 12, 10); // bas
+  drawCrowdRegion(0, b.top, b.left, b.bottom, 10, 12); // gauche
+  drawCrowdRegion(b.right, b.top, CANVAS_W, b.bottom, 10, 12); // droite
+}
+
+function drawCrowdRegion(x0, y0, x1, y1, stepX = 12, stepY = 12) {
+  const w = x1 - x0, h = y1 - y0;
+  if (w <= 0 || h <= 0) return;
+  const colorsCrowd = colors.crowd;
+
+  for (let y = y0 + 6; y < y1 - 4; y += stepY) {
+    // Décalage pour effet de foule
+    const offset = ((y / stepY) % 2) * (stepX / 2);
+    for (let x = x0 + 6 + offset; x < x1 - 4; x += stepX) {
+      const c = colorsCrowd[(Math.random() * colorsCrowd.length) | 0];
+      // Tête
+      ctx.beginPath();
+      ctx.arc(x, y, 2.2, 0, 2 * Math.PI);
+      ctx.fillStyle = c;
+      ctx.fill();
+      // Épaules
+      ctx.fillStyle = "rgba(0,0,0,0.15)";
+      ctx.fillRect(x - 2.8, y + 2.2, 5.6, 1.5);
+    }
+  }
 }
 
 // --- SUIVI FLUIDE DU CURSEUR/DOIGT ---
@@ -419,10 +533,9 @@ function handlePointer(e) {
   let rect = canvas.getBoundingClientRect();
   let x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
   let y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
-
-  // Correction : ne jamais bloquer l'accès à la zone jaune pour le curseur, à tous les niveaux
-  playerTarget.x = Math.max(30, Math.min(CANVAS_W-30, x));
-  playerTarget.y = Math.max(30, Math.min(CANVAS_H-30, y));
+  const clamped = clampIntoBounds({x, y}, 30);
+  playerTarget.x = clamped.x;
+  playerTarget.y = clamped.y;
 }
 
 function isPlayerInZone() {
@@ -433,7 +546,7 @@ function isPlayerInZone() {
 }
 
 function showArrow(move) {
-  // À compléter : affichage d'une flèche directionnelle sur le canvas si besoin
+  // (optionnel) affichage d'une flèche directionnelle sur le canvas
 }
 
 function completeLevel() {
@@ -455,10 +568,11 @@ function handleOverlayClick() {
     gameState.level++;
     hideOverlay();
     // Reset player position to formation center
-    gameState.player.x = FORMATION[gameState.playerIdx].x;
-    gameState.player.y = FORMATION[gameState.playerIdx].y;
-    playerTarget.x = gameState.player.x;
-    playerTarget.y = gameState.player.y;
+    const center = FORMATION[gameState.playerIdx];
+    gameState.player.x = center.x;
+    gameState.player.y = center.y;
+    playerTarget.x = center.x;
+    playerTarget.y = center.y;
     gameState.player.outZoneMs = 0;
     // Initialize new level
     initLevel(gameState.level);
