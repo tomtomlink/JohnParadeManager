@@ -1,21 +1,25 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Page Principale du Jeu</title>
-    <link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0, user-scalable=no">
+  <title>John Parade Manager</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <header>
-        <h1>Bienvenue dans le Jeu !</h1>
-    </header>
-    <main>
-        <p>Cette page est la principale interface du jeu.</p>
-        <button id="start-game">Commencer le Jeu</button>
-    </main>
-    <footer>
-        <p>&copy; 2023 John Parade Manager</p>
-    </footer>
+  <main id="main-menu">
+    <h1>John Parade Manager</h1>
+    <button id="play-btn">Jouer</button>
+    <button id="select-musician-btn" disabled>Sélection du musicien</button>
+  </main>
+  <div id="game-container" style="display:none;">
+    <canvas id="game-canvas" width="360" height="600"></canvas>
+    <div id="arrows"></div>
+    <div id="ui">
+      <span id="timer"></span>
+      <span id="score"></span>
+    </div>
+  </div>
+  <script src="game.js"></script>
 </body>
 </html>
