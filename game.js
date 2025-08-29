@@ -3,7 +3,8 @@
 const CANVAS_W = 360, CANVAS_H = 600;
 const MUSICIANS = 25;
 const ROWS = 5, COLS = 5;
-const FORMATION = []; // Will be filled as a grid
+const FORMATION = []; // Will be filled as a grid - current positions for rendering
+const FORMATION_TARGETS = []; // Target positions for smooth movement
 const MUSICIAN_SIZE = 32; // pixels
 const ZONE_RADIUS = 22; // pixels, tight fit
 const MOVE_DURATION = 2000; // ms for each move
@@ -47,9 +48,17 @@ function startGame() {
     arrows: [],
     timer: 0,
     score: 0,
-    running: true
+    running: true,
+    // Animation state for smooth movement
+    isMoving: false,
+    moveProgress: 0,
+    moveStartTime: 0,
+    formationStartPositions: [] // Track start positions for interpolation
   };
   initLevel(gameState.level);
+  // Initialize player position to center of their assigned zone
+  gameState.player.x = FORMATION[gameState.playerIdx].x;
+  gameState.player.y = FORMATION[gameState.playerIdx].y;
   gameLoop();
   canvas.addEventListener('pointerdown', handlePointer, {passive: false});
   canvas.addEventListener('pointermove', handlePointer, {passive: false});
@@ -59,6 +68,7 @@ function startGame() {
 // Génère la formation en losange (5x5)
 function initFormation() {
   FORMATION.length = 0;
+  FORMATION_TARGETS.length = 0;
   let centerX = CANVAS_W/2, startY = 130;
   let spacing = 40;
   for (let row=0; row<ROWS; row++) {
@@ -67,6 +77,7 @@ function initFormation() {
       let x = centerX + (col-2)*spacing + (Math.abs(row-2)*spacing/2)*(col-2>0?1:-1);
       let y = startY + row*spacing;
       FORMATION.push({x, y});
+      FORMATION_TARGETS.push({x, y}); // Initialize targets to same position
     }
   }
 }
@@ -86,7 +97,7 @@ function initLevel(level) {
     gameState.moves.push(move);
   }
   gameState.currentMove = 0;
-  gameState.moveStart = performance.now() + PREVIEW_ARROW_MS;
+  gameState.moveStart = performance.now() + PREVIEW_ARROW_MS + 2000; // Give extra time at start
   gameState.nextArrow = true;
 }
 
@@ -102,26 +113,71 @@ function gameLoop() {
 function update() {
   // Gestion du mouvement de formation
   let now = performance.now();
+  
   if (gameState.currentMove < gameState.moves.length) {
     if (gameState.nextArrow && now > gameState.moveStart - PREVIEW_ARROW_MS) {
       // Affiche la flèche de direction
       showArrow(gameState.moves[gameState.currentMove]);
       gameState.nextArrow = false;
     }
-    if (now > gameState.moveStart) {
-      // Déplacement de la formation
+    
+    if (now > gameState.moveStart && !gameState.isMoving) {
+      // Start new formation movement
+      gameState.isMoving = true;
+      gameState.moveStartTime = now;
+      gameState.moveProgress = 0;
+      
+      // Store current positions as start positions for interpolation
+      gameState.formationStartPositions = [];
       for (let i = 0; i < FORMATION.length; i++) {
-        FORMATION[i].x += gameState.moves[gameState.currentMove].dx;
-        FORMATION[i].y += gameState.moves[gameState.currentMove].dy;
+        gameState.formationStartPositions.push({
+          x: FORMATION[i].x,
+          y: FORMATION[i].y
+        });
       }
-      // Maj du joueur aussi
-      gameState.player.x += gameState.moves[gameState.currentMove].dx;
-      gameState.player.y += gameState.moves[gameState.currentMove].dy;
+      
+      // Update target positions for the formation
+      for (let i = 0; i < FORMATION_TARGETS.length; i++) {
+        FORMATION_TARGETS[i].x += gameState.moves[gameState.currentMove].dx;
+        FORMATION_TARGETS[i].y += gameState.moves[gameState.currentMove].dy;
+      }
+      
       gameState.currentMove++;
       gameState.moveStart = now + MOVE_DURATION;
       gameState.nextArrow = true;
     }
   }
+  
+  // Smooth interpolation during movement
+  if (gameState.isMoving) {
+    let elapsed = now - gameState.moveStartTime;
+    gameState.moveProgress = Math.min(elapsed / MOVE_DURATION, 1);
+    
+    // Easing function for smoother animation (ease-in-out)
+    let easedProgress = gameState.moveProgress * gameState.moveProgress * (3 - 2 * gameState.moveProgress);
+    
+    // Interpolate current positions toward targets
+    for (let i = 0; i < FORMATION.length; i++) {
+      let startX = gameState.formationStartPositions[i].x;
+      let startY = gameState.formationStartPositions[i].y;
+      let targetX = FORMATION_TARGETS[i].x;
+      let targetY = FORMATION_TARGETS[i].y;
+      
+      FORMATION[i].x = startX + (targetX - startX) * easedProgress;
+      FORMATION[i].y = startY + (targetY - startY) * easedProgress;
+    }
+    
+    // Check if movement is complete
+    if (gameState.moveProgress >= 1) {
+      gameState.isMoving = false;
+      // Ensure positions are exactly at targets
+      for (let i = 0; i < FORMATION.length; i++) {
+        FORMATION[i].x = FORMATION_TARGETS[i].x;
+        FORMATION[i].y = FORMATION_TARGETS[i].y;
+      }
+    }
+  }
+  
   // Timer hors zone
   if (!isPlayerInZone()) {
     gameState.player.outZoneMs += 16;
@@ -146,17 +202,22 @@ function render() {
   ctx.moveTo(canvas.width-50,0); ctx.lineTo(canvas.width-50,canvas.height);
   ctx.stroke();
 
-  // Zone à suivre
+  // Zone à suivre - shows current formation position (moves smoothly)
   let playerIdx = gameState.playerIdx;
   ctx.beginPath();
   ctx.arc(FORMATION[playerIdx].x, FORMATION[playerIdx].y, ZONE_RADIUS, 0, 2*Math.PI);
   ctx.fillStyle = colors.zone;
   ctx.fill();
 
-  // Musiciens (25)
+  // Musiciens (25) - render formation musicians (except player)
   for (let i=0; i<FORMATION.length; i++) {
-    drawMusician(ctx, FORMATION[i].x, FORMATION[i].y, 1.1, i === playerIdx);
+    if (i !== playerIdx) {
+      drawMusician(ctx, FORMATION[i].x, FORMATION[i].y, 1.1, false);
+    }
   }
+  
+  // Render player musician at their independent position
+  drawMusician(ctx, gameState.player.x, gameState.player.y, 1.1, true);
 
   // Score/timer
   document.getElementById('timer').textContent = `Temps hors zone: ${(gameState.player.outZoneMs/1000).toFixed(2)}s`;
@@ -272,6 +333,7 @@ function handlePointer(e) {
 
 function isPlayerInZone() {
   let idx = gameState.playerIdx;
+  // Use current formation position for zone calculation (the zone moves with the formation)
   let px = FORMATION[idx].x, py = FORMATION[idx].y;
   let dx = gameState.player.x - px, dy = gameState.player.y - py;
   return (dx*dx + dy*dy) < (ZONE_RADIUS*ZONE_RADIUS);
