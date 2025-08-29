@@ -19,6 +19,19 @@ const colors = {
 let canvas, ctx, gameState = null, assets = {};
 let playerTarget = {x: 0, y: 0}; // <-- Ajout pour suivi fluide
 
+// Overlay management
+function showOverlay(message, buttonText = "Continuer") {
+  document.getElementById('overlay-message').textContent = message;
+  document.getElementById('overlay-button').textContent = buttonText;
+  document.getElementById('game-overlay').style.display = 'flex';
+  gameState.running = false; // Pause the game
+}
+
+function hideOverlay() {
+  document.getElementById('game-overlay').style.display = 'none';
+  gameState.running = true; // Resume the game
+}
+
 window.onload = () => {
   canvas = document.getElementById('game-canvas');
   ctx = canvas.getContext('2d');
@@ -53,13 +66,18 @@ function startGame() {
     moveFrom: [],
     moveTo: [],
     playerFrom: {x: 0, y: 0},
-    playerTo: {x: 0, y: 0}
+    playerTo: {x: 0, y: 0},
+    moveDuration: MOVE_DURATION
   };
   playerTarget = {x: FORMATION[12].x, y: FORMATION[12].y}; // Initialisation cible
+
+  // Set up overlay button click handler
+  document.getElementById('overlay-button').onclick = handleOverlayClick;
+
   initLevel(gameState.level);
   gameLoop();
   canvas.addEventListener('pointerdown', handlePointer, {passive: false});
-  canvas.addEventListener('pointermove', handlePointer, {passive: true}); // FLUIDE : déclenché en continu
+  canvas.addEventListener('pointermove', handlePointer, {passive: true}); // FLUIDE : déclenché en continu
   canvas.addEventListener('pointerup', handlePointer, {passive: false});
 }
 
@@ -78,21 +96,54 @@ function initFormation() {
 }
 
 function initLevel(level) {
-  const moves = [
+  // Base moves: right, down, left, up
+  const baseMoves = [
     {dx: 35, dy: 0},
     {dx: 0, dy: 35},
     {dx: -35, dy: 0},
     {dx: 0, dy: -35}
   ];
+  
+  // Add diagonal moves for higher levels
+  const diagonalMoves = [
+    {dx: 25, dy: 25},   // down-right
+    {dx: -25, dy: 25},  // down-left
+    {dx: 25, dy: -25},  // up-right
+    {dx: -25, dy: -25}  // up-left
+  ];
+  
   gameState.moves = [];
-  for (let i = 0; i < level + 2; i++) {
-    let move = moves[i % moves.length];
+  
+  // Number of moves increases with level
+  const numMoves = level + 2;
+  
+  for (let i = 0; i < numMoves; i++) {
+    let move;
+    if (level <= 3) {
+      // Early levels: only cardinal directions
+      move = baseMoves[i % baseMoves.length];
+    } else if (level <= 6) {
+      // Mid levels: mix of cardinal and some random
+      const allMoves = [...baseMoves];
+      if (Math.random() < 0.3) { // 30% chance of diagonal
+        allMoves.push(...diagonalMoves);
+      }
+      move = allMoves[Math.floor(Math.random() * allMoves.length)];
+    } else {
+      // High levels: more random and unpredictable
+      const allMoves = [...baseMoves, ...diagonalMoves];
+      move = allMoves[Math.floor(Math.random() * allMoves.length)];
+    }
     gameState.moves.push(move);
   }
+  
   gameState.currentMove = 0;
   gameState.moveStart = performance.now() + PREVIEW_ARROW_MS;
   gameState.nextArrow = true;
   gameState.animating = false;
+  
+  // Update move duration based on level (gets faster)
+  gameState.moveDuration = Math.max(800, MOVE_DURATION - (level - 1) * 150);
 }
 
 function gameLoop() {
@@ -132,7 +183,7 @@ function update() {
   }
 
   if (gameState.animating) {
-    let p = Math.min(1, (now - gameState.moveStartTime) / MOVE_DURATION);
+    let p = Math.min(1, (now - gameState.moveStartTime) / gameState.moveDuration);
     for (let i = 0; i < FORMATION.length; i++) {
       FORMATION[i].x = gameState.moveFrom[i].x + (gameState.moveTo[i].x - gameState.moveFrom[i].x) * p;
       FORMATION[i].y = gameState.moveFrom[i].y + (gameState.moveTo[i].y - gameState.moveFrom[i].y) * p;
@@ -150,6 +201,12 @@ function update() {
       }
       gameState.player.x = gameState.playerTo.x;
       gameState.player.y = gameState.playerTo.y;
+      
+      // Check if level is completed
+      if (gameState.currentMove >= gameState.moves.length) {
+        completeLevel();
+        return;
+      }
     }
   }
 
@@ -195,7 +252,8 @@ function render() {
     }
   }
 
-  document.getElementById('timer').textContent = `Temps hors zone: ${(gameState.player.outZoneMs/1000).toFixed(2)}s`;
+  // Score/timer
+  document.getElementById('timer').textContent = `Niveau ${gameState.level} - Temps hors zone: ${(gameState.player.outZoneMs/1000).toFixed(2)}s`;
   document.getElementById('score').textContent = `Score: ${gameState.score}`;
 }
 
@@ -302,8 +360,49 @@ function showArrow(move) {
   // À compléter : affichage d'une flèche directionnelle sur le canvas
 }
 
+function completeLevel() {
+  gameState.running = false;
+  
+  if (gameState.level >= 10) {
+    // Game completed!
+    showOverlay("Bravo ! Tu as terminé les 10 parades. Clique pour rejouer", "Rejouer");
+  } else {
+    // Level completed, move to next
+    showOverlay("Bravo! On passe à la prochaine parade", "Continuer");
+  }
+}
+
+function handleOverlayClick() {
+  const overlayMessage = document.getElementById('overlay-message').textContent;
+  
+  if (overlayMessage.includes("rejouer") || overlayMessage.includes("terrine")) {
+    // Restart the game
+    hideOverlay();
+    location.reload();
+  } else {
+    // Continue to next level
+    gameState.level++;
+    hideOverlay();
+    
+    // Reset player position to formation center
+    gameState.player.x = FORMATION[gameState.playerIdx].x;
+    gameState.player.y = FORMATION[gameState.playerIdx].y;
+    playerTarget.x = gameState.player.x;
+    playerTarget.y = gameState.player.y;
+    // Reset out of zone timer
+    gameState.player.outZoneMs = 0;
+    
+    // Initialize new level
+    initLevel(gameState.level);
+    
+    // Ensure game loop is running
+    if (gameState.running) {
+      requestAnimationFrame(gameLoop);
+    }
+  }
+}
+
 function endGame() {
   gameState.running = false;
-  alert("Perdu ! Vous avez quitté votre place trop longtemps.");
-  location.reload();
+  showOverlay("T'es une terrine!", "Recommencer");
 }
