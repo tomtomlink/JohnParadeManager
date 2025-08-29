@@ -6,7 +6,7 @@ const ROWS = 5, COLS = 5;
 const FORMATION = []; // Will be filled as a grid
 const MUSICIAN_SIZE = 32; // pixels
 const ZONE_RADIUS = 22; // pixels, tight fit
-const MOVE_DURATION = 2000; // ms for each move
+const MOVE_DURATION = 2000; // ms for each move (base)
 const PREVIEW_ARROW_MS = 1000; // show arrow before move
 const MAX_OUT_ZONE_MS = 5000; // 5 seconds
 
@@ -17,7 +17,8 @@ const colors = {
 };
 
 let canvas, ctx, gameState = null, assets = {};
-let playerTarget = {x: 0, y: 0}; // <-- Ajout pour suivi fluide
+let playerTarget = {x: 0, y: 0}; // Pour suivi fluide
+let musicAudio = null; // Pour la musique
 
 // Overlay management
 function showOverlay(message, buttonText = "Continuer") {
@@ -37,7 +38,9 @@ window.onload = () => {
   ctx = canvas.getContext('2d');
   document.getElementById('play-btn').onclick = startGame;
 
-  // "Sélection du musicien" désactivé pour l'instant
+  // Préparer la musique
+  musicAudio = new Audio('music.mp3');
+  musicAudio.loop = true;
 
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
@@ -53,7 +56,7 @@ function startGame() {
   document.getElementById('game-container').style.display = 'flex';
   initFormation();
   gameState = {
-    playerIdx: 12, // centre, pour l'instant
+    playerIdx: 12, // centre
     player: {x: FORMATION[12].x, y: FORMATION[12].y, outZoneMs: 0},
     moveIdx: 0,
     level: 1,
@@ -69,15 +72,21 @@ function startGame() {
     playerTo: {x: 0, y: 0},
     moveDuration: MOVE_DURATION
   };
-  playerTarget = {x: FORMATION[12].x, y: FORMATION[12].y}; // Initialisation cible
+  playerTarget = {x: FORMATION[12].x, y: FORMATION[12].y};
 
   // Set up overlay button click handler
   document.getElementById('overlay-button').onclick = handleOverlayClick;
 
+  // Démarrer la musique si elle n'est pas déjà en cours
+  if (musicAudio && musicAudio.paused) {
+    musicAudio.currentTime = 0;
+    musicAudio.play().catch(()=>{});
+  }
+
   initLevel(gameState.level);
   gameLoop();
   canvas.addEventListener('pointerdown', handlePointer, {passive: false});
-  canvas.addEventListener('pointermove', handlePointer, {passive: true}); // FLUIDE : déclenché en continu
+  canvas.addEventListener('pointermove', handlePointer, {passive: true});
   canvas.addEventListener('pointerup', handlePointer, {passive: false});
 }
 
@@ -95,55 +104,76 @@ function initFormation() {
   }
 }
 
+// Renvoie un tableau de moves pour chaque PNJ (complexifié à partir du niveau 2)
 function initLevel(level) {
-  // Base moves: right, down, left, up
+  // Base moves: droite, bas, gauche, haut
   const baseMoves = [
     {dx: 35, dy: 0},
     {dx: 0, dy: 35},
     {dx: -35, dy: 0},
     {dx: 0, dy: -35}
   ];
-  
-  // Add diagonal moves for higher levels
   const diagonalMoves = [
-    {dx: 25, dy: 25},   // down-right
-    {dx: -25, dy: 25},  // down-left
-    {dx: 25, dy: -25},  // up-right
-    {dx: -25, dy: -25}  // up-left
+    {dx: 25, dy: 25},
+    {dx: -25, dy: 25},
+    {dx: 25, dy: -25},
+    {dx: -25, dy: -25}
   ];
-  
+
   gameState.moves = [];
-  
-  // Number of moves increases with level
   const numMoves = level + 2;
-  
-  for (let i = 0; i < numMoves; i++) {
-    let move;
-    if (level <= 3) {
-      // Early levels: only cardinal directions
-      move = baseMoves[i % baseMoves.length];
-    } else if (level <= 6) {
-      // Mid levels: mix of cardinal and some random
-      const allMoves = [...baseMoves];
-      if (Math.random() < 0.3) { // 30% chance of diagonal
-        allMoves.push(...diagonalMoves);
+
+  for (let step = 0; step < numMoves; step++) {
+    if (level < 2) {
+      // Tous les PNJ font le même move (choré classique)
+      let move;
+      if (level <= 3) {
+        move = baseMoves[step % baseMoves.length];
+      } else if (level <= 6) {
+        const allMoves = [...baseMoves];
+        if (Math.random() < 0.3) {
+          allMoves.push(...diagonalMoves);
+        }
+        move = allMoves[Math.floor(Math.random() * allMoves.length)];
+      } else {
+        const allMoves = [...baseMoves, ...diagonalMoves];
+        move = allMoves[Math.floor(Math.random() * allMoves.length)];
       }
-      move = allMoves[Math.floor(Math.random() * allMoves.length)];
+      gameState.moves.push(Array(FORMATION.length).fill(move));
     } else {
-      // High levels: more random and unpredictable
-      const allMoves = [...baseMoves, ...diagonalMoves];
-      move = allMoves[Math.floor(Math.random() * allMoves.length)];
+      // À partir du niveau 2 : chaque PNJ a sa propre direction (ex : cercle déformable)
+      let movesStep = [];
+      let shape = (level < 4) ? "circle" : (level < 7 ? "spiral" : "star");
+      for (let i = 0; i < FORMATION.length; i++) {
+        let angle = (2 * Math.PI * i) / FORMATION.length + step * 0.5;
+        let dist = 28 + (level * 2);
+        let dx, dy;
+        if (shape === "circle") {
+          dx = Math.cos(angle) * dist;
+          dy = Math.sin(angle) * dist;
+        } else if (shape === "spiral") {
+          dx = Math.cos(angle + step * 0.25) * (dist + step * 3);
+          dy = Math.sin(angle + step * 0.25) * (dist + step * 3);
+        } else { // star
+          let r = (i % 2 === 0) ? dist : dist * 1.9;
+          dx = Math.cos(angle) * r;
+          dy = Math.sin(angle) * r;
+        }
+        movesStep.push({dx, dy});
+      }
+      gameState.moves.push(movesStep);
     }
-    gameState.moves.push(move);
   }
-  
+
   gameState.currentMove = 0;
   gameState.moveStart = performance.now() + PREVIEW_ARROW_MS;
   gameState.nextArrow = true;
   gameState.animating = false;
-  
-  // Update move duration based on level (gets faster)
-  gameState.moveDuration = Math.max(800, MOVE_DURATION - (level - 1) * 150);
+
+  // Vitesse de déplacement : accélère plus fort à chaque niveau
+  // Décroissance exponentielle, mini 250ms
+  const SPEEDUP = 0.68;
+  gameState.moveDuration = Math.max(250, MOVE_DURATION * Math.pow(SPEEDUP, level-1));
 }
 
 function gameLoop() {
@@ -156,7 +186,7 @@ function gameLoop() {
 function update() {
   let now = performance.now();
 
-  // Gestion animation formation
+  // Animation formation
   if (!gameState.animating && gameState.currentMove < gameState.moves.length) {
     if (gameState.nextArrow && now > gameState.moveStart - PREVIEW_ARROW_MS) {
       showArrow(gameState.moves[gameState.currentMove]);
@@ -166,19 +196,22 @@ function update() {
       gameState.animating = true;
       gameState.moveStartTime = now;
       gameState.moveFrom = FORMATION.map(m => ({x: m.x, y: m.y}));
-      let move = gameState.moves[gameState.currentMove];
-      gameState.moveTo = FORMATION.map(m => ({
-        x: m.x + move.dx,
-        y: m.y + move.dy
+
+      let movesStep = gameState.moves[gameState.currentMove];
+      // Mouvement individuel ou collectif
+      gameState.moveTo = FORMATION.map((m, i) => ({
+        x: m.x + movesStep[i].dx,
+        y: m.y + movesStep[i].dy
       }));
       gameState.playerFrom = {x: gameState.player.x, y: gameState.player.y};
+      // Player suit le move du slot central
       gameState.playerTo = {
-        x: gameState.player.x + move.dx,
-        y: gameState.player.y + move.dy
+        x: gameState.player.x + movesStep[gameState.playerIdx].dx,
+        y: gameState.player.y + movesStep[gameState.playerIdx].dy
       };
       // On déplace aussi la cible pour que le joueur reste "au même endroit relatif"
-      playerTarget.x += move.dx;
-      playerTarget.y += move.dy;
+      playerTarget.x += movesStep[gameState.playerIdx].dx;
+      playerTarget.y += movesStep[gameState.playerIdx].dy;
     }
   }
 
@@ -201,8 +234,8 @@ function update() {
       }
       gameState.player.x = gameState.playerTo.x;
       gameState.player.y = gameState.playerTo.y;
-      
-      // Check if level is completed
+
+      // Fin du niveau
       if (gameState.currentMove >= gameState.moves.length) {
         completeLevel();
         return;
@@ -211,7 +244,7 @@ function update() {
   }
 
   // --- SUIVI FLUIDE DU CURSEUR/DOIGT ---
-  const FOLLOW_SPEED = 0.18; // 0.15~0.2 = feeling naturel, 1 = instantané
+  const FOLLOW_SPEED = 0.18;
   gameState.player.x += (playerTarget.x - gameState.player.x) * FOLLOW_SPEED;
   gameState.player.y += (playerTarget.y - gameState.player.y) * FOLLOW_SPEED;
 
@@ -252,7 +285,6 @@ function render() {
     }
   }
 
-  // Score/timer
   document.getElementById('timer').textContent = `Niveau ${gameState.level} - Temps hors zone: ${(gameState.player.outZoneMs/1000).toFixed(2)}s`;
   document.getElementById('score').textContent = `Score: ${gameState.score}`;
 }
@@ -357,44 +389,35 @@ function isPlayerInZone() {
 }
 
 function showArrow(move) {
-  // À compléter : affichage d'une flèche directionnelle sur le canvas
+  // À compléter : affichage d'une flèche directionnelle sur le canvas si besoin
 }
 
 function completeLevel() {
   gameState.running = false;
-  
   if (gameState.level >= 10) {
-    // Game completed!
     showOverlay("Bravo ! Tu as terminé les 10 parades. Clique pour rejouer", "Rejouer");
   } else {
-    // Level completed, move to next
     showOverlay("Bravo! On passe à la prochaine parade", "Continuer");
   }
 }
 
 function handleOverlayClick() {
   const overlayMessage = document.getElementById('overlay-message').textContent;
-  
   if (overlayMessage.includes("rejouer") || overlayMessage.includes("terrine")) {
-    // Restart the game
+    if (musicAudio) musicAudio.pause();
     hideOverlay();
     location.reload();
   } else {
-    // Continue to next level
     gameState.level++;
     hideOverlay();
-    
     // Reset player position to formation center
     gameState.player.x = FORMATION[gameState.playerIdx].x;
     gameState.player.y = FORMATION[gameState.playerIdx].y;
     playerTarget.x = gameState.player.x;
     playerTarget.y = gameState.player.y;
-    // Reset out of zone timer
     gameState.player.outZoneMs = 0;
-    
     // Initialize new level
     initLevel(gameState.level);
-    
     // Ensure game loop is running
     if (gameState.running) {
       requestAnimationFrame(gameLoop);
@@ -405,4 +428,5 @@ function handleOverlayClick() {
 function endGame() {
   gameState.running = false;
   showOverlay("T'es une terrine!", "Recommencer");
+  if (musicAudio) musicAudio.pause();
 }
