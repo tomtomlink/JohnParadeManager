@@ -1,21 +1,19 @@
-// John Parade Manager - Base Game Logic
+// John Parade Manager - Base Game Logic (mobile portrait optimized, continuous moves, final shapes)
 
-const CANVAS_W = 360, CANVAS_H = 600;
+let CANVAS_W = 360, CANVAS_H = 640; // dynamically updated on resize
 const MUSICIANS = 25;
 const ROWS = 5, COLS = 5;
-const FORMATION = []; // Will be filled as a grid
-const MUSICIAN_SIZE = 32; // pixels (sprite design scale)
-const PNJ_RADIUS = 12; // rayon de "sécurité" visuel pour PNJ
-const ZONE_RADIUS = 22; // pixels, zone jaune du joueur
-const MOVE_DURATION = 2000; // ms for each move (base)
-const PREVIEW_ARROW_MS = 800; // show arrow before move
+const FORMATION = []; // Will be filled with current positions of PNJ targets
+const PNJ_RADIUS = 12; // visual radius for spacing
+const ZONE_RADIUS = 22; // yellow zone radius for the player's slot
+const MOVE_DURATION_BASE = 2000; // ms per micro-step (base, scaled by level)
 const MAX_OUT_ZONE_MS = 5000; // 5 seconds
-const MIN_DIST = 26; // distance min entre PNJ (peuvent se frôler mais pas se toucher)
+const MIN_DIST = 26; // minimum distance between PNJ centers (can brush, not overlap)
 
-// Délimitation de la zone de jeu (rectangle central sur la pelouse)
-const PAD_LR = 50;   // marges gauche/droite
-const PAD_TOP = 90;  // marge haute
-const PAD_BOTTOM = 60; // marge basse
+// Gameplay layout: game area vs crowd area (reduced crowd => larger game zone)
+let PAD_LR = 28;   // left/right margins
+let PAD_TOP = 56;  // top margin
+let PAD_BOTTOM = 38; // bottom margin
 
 const colors = {
   pelouse: ["#52b06d", "#2e944b", "#b1e2b3"],
@@ -23,13 +21,15 @@ const colors = {
   line: "#f6f6f6",
   zone: "rgba(255,255,0,0.28)",
   crowd: ["#c57b57","#e0b089","#a06c49","#8aa4c8","#d7a1a7","#9b9b9b"],
+  trumpetBrass: "#D4AF37",
+  trumpetShadow: "#b08f2d"
 };
 
-let canvas, ctx, gameState = null, assets = {};
-let playerTarget = {x: 0, y: 0}; // Pour suivi fluide
-let musicAudio = null; // Pour la musique
+let canvas, ctx, gameState = null;
+let playerTarget = {x: 0, y: 0}; // Smooth follow target
+let musicAudio = null; // Background music
 
-// Helpers bounds
+// Helpers for bounds and geometry
 function getBounds() {
   return {
     left: PAD_LR,
@@ -46,18 +46,20 @@ function clampIntoBounds(pos, margin) {
     y: clamp(pos.y, b.top + margin, b.bottom - margin)
   };
 }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function lerpPt(p, q, t) { return { x: lerp(p.x, q.x, t), y: lerp(p.y, q.y, t) }; }
+function easeInOutCubic(t) { return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3)/2; }
 
 // Overlay management
 function showOverlay(message, buttonText = "Continuer") {
   document.getElementById('overlay-message').textContent = message;
   document.getElementById('overlay-button').textContent = buttonText;
   document.getElementById('game-overlay').style.display = 'flex';
-  gameState.running = false; // Pause the game
+  if (gameState) gameState.running = false; // Pause
 }
-
 function hideOverlay() {
   document.getElementById('game-overlay').style.display = 'none';
-  gameState.running = true; // Resume the game
+  if (gameState) gameState.running = true; // Resume
 }
 
 window.onload = () => {
@@ -65,7 +67,7 @@ window.onload = () => {
   ctx = canvas.getContext('2d');
   document.getElementById('play-btn').onclick = startGame;
 
-  // Préparer la musique
+  // Prepare music
   musicAudio = new Audio('music.mp3');
   musicAudio.loop = true;
 
@@ -74,7 +76,19 @@ window.onload = () => {
 };
 
 function resizeCanvas() {
-  // Canvas haute résolution (retina) pour des sprites plus nets
+  // Portrait-first responsive sizing for smartphones
+  const vw = Math.max(320, Math.min(window.innerWidth, 480));
+  const vh = Math.max(560, Math.min(window.innerHeight, 920));
+  CANVAS_W = vw;
+  CANVAS_H = vh;
+
+  // Scale crowd/game paddings proportionally for larger screens
+  const scale = CANVAS_W / 360;
+  PAD_LR = Math.round(28 * scale);
+  PAD_TOP = Math.round(56 * scale);
+  PAD_BOTTOM = Math.round(38 * scale);
+
+  // High-DPI canvas
   const dpr = Math.max(1, window.devicePixelRatio || 1);
   canvas.style.width = CANVAS_W + 'px';
   canvas.style.height = CANVAS_H + 'px';
@@ -89,144 +103,149 @@ function startGame() {
   document.getElementById('game-container').style.display = 'flex';
   initFormation();
   gameState = {
-    playerIdx: 12, // centre
+    playerIdx: 12, // center of 5x5
     player: {x: FORMATION[12].x, y: FORMATION[12].y, outZoneMs: 0},
-    moveIdx: 0,
     level: 1,
-    arrows: [],
-    timer: 0,
     score: 0,
     running: true,
-    animating: false,
-    moveStartTime: 0,
-    moveFrom: [],
-    moveTo: [],
+
+    // Continuous animation timeline (no pauses between moves)
+    moves: [],         // Array< Array<{dx, dy}> > steps, each an array for all 25 PNJ
+    currentMove: 0,
+    moveStartTime: performance.now(),
+    moveDuration: MOVE_DURATION_BASE, // adjusted by level
+    moveFrom: [],      // Positions at start of current step
+    moveTo: [],        // Target positions for current step
+
+    // Player tween
     playerFrom: {x: 0, y: 0},
     playerTo: {x: 0, y: 0},
-    moveDuration: MOVE_DURATION,
-    currentMove: 0,
-    nextArrow: true,
-    moveStart: performance.now() + PREVIEW_ARROW_MS,
-    moves: []
   };
-  // Cible initiale clamped dans la zone de jeu
+  // Initial target clamped
   playerTarget = clampIntoBounds({x: FORMATION[12].x, y: FORMATION[12].y}, 30);
 
-  // Set up overlay button click handler
+  // Overlay button
   document.getElementById('overlay-button').onclick = handleOverlayClick;
 
-  // Démarrer la musique si elle n'est pas déjà en cours
+  // Start music
   if (musicAudio && musicAudio.paused) {
     musicAudio.currentTime = 0;
     musicAudio.play().catch(()=>{});
   }
 
   initLevel(gameState.level);
+  // Set first step "from" and "to"
+  gameState.moveFrom = FORMATION.map(p => ({...p}));
+  setStepTargets(0);
+
   gameLoop();
   canvas.addEventListener('pointerdown', handlePointer, {passive: false});
   canvas.addEventListener('pointermove', handlePointer, {passive: true});
   canvas.addEventListener('pointerup', handlePointer, {passive: false});
 }
 
-// Génère la formation en losange (5x5)
+// Initial formation (diamond-like 5x5) centered in game bounds
 function initFormation() {
   FORMATION.length = 0;
-  let centerX = (getBounds().left + getBounds().right) / 2;
-  let startY = clamp(PAD_TOP + 40, PAD_TOP + 40, CANVAS_H - PAD_BOTTOM - 40);
-  let spacing = 40;
+  const b = getBounds();
+  const centerX = (b.left + b.right) / 2;
+  const topY = b.top + 40;
+  const spacing = Math.min(44, (b.right - b.left) / 6.0); // adapt spacing to width
+
   for (let row=0; row<ROWS; row++) {
     for (let col=0; col<COLS; col++) {
       let x = centerX + (col-2)*spacing + (Math.abs(row-2)*spacing/2)*(col-2>0?1:-1);
-      let y = startY + row*spacing;
+      let y = topY + row*spacing;
       let clamped = clampIntoBounds({x,y}, PNJ_RADIUS);
       FORMATION.push(clamped);
     }
   }
 }
 
-// Renvoie un tableau de moves pour chaque PNJ (complexifié à partir du niveau 2)
+// Level setup: generate continuous path to a final shape specific to the level
 function initLevel(level) {
-  // Base moves: droite, bas, gauche, haut
-  const baseMoves = [
-    {dx: 35, dy: 0},
-    {dx: 0, dy: 35},
-    {dx: -35, dy: 0},
-    {dx: 0, dy: -35}
-  ];
-  const diagonalMoves = [
-    {dx: 25, dy: 25},
-    {dx: -25, dy: 25},
-    {dx: 25, dy: -25},
-    {dx: -25, dy: -25}
-  ];
+  // Compute end positions as a geometric shape for this level
+  const endPositions = getLevelFinalShapePositions(level);
 
-  gameState.moves = [];
-  const numMoves = level + 2;
+  // Number of micro-steps to ensure very smooth motion
+  const steps = Math.max(16, 10 + level * 4);
 
-  for (let step = 0; step < numMoves; step++) {
-    if (level < 2) {
-      // Tous les PNJ font le même move (choré classique)
-      let move;
-      if (level <= 3) {
-        move = baseMoves[step % baseMoves.length];
-      } else if (level <= 6) {
-        const allMoves = [...baseMoves];
-        if (Math.random() < 0.3) {
-          allMoves.push(...diagonalMoves);
-        }
-        move = allMoves[Math.floor(Math.random() * allMoves.length)];
-      } else {
-        const allMoves = [...baseMoves, ...diagonalMoves];
-        move = allMoves[Math.floor(Math.random() * allMoves.length)];
-      }
-      gameState.moves.push(Array(FORMATION.length).fill(move));
-    } else {
-      // À partir du niveau 2 : chorégraphies individuelles (cercle, spirale, étoile)
-      let movesStep = [];
-      let shape = (level < 4) ? "circle" : (level < 7 ? "spiral" : "star");
-      for (let i = 0; i < FORMATION.length; i++) {
-        let angle = (2 * Math.PI * i) / FORMATION.length + step * 0.5;
-        let dist = 28 + (level * 2);
-        let dx, dy;
-        if (shape === "circle") {
-          dx = Math.cos(angle) * dist;
-          dy = Math.sin(angle) * dist;
-        } else if (shape === "spiral") {
-          dx = Math.cos(angle + step * 0.25) * (dist + step * 3);
-          dy = Math.sin(angle + step * 0.25) * (dist + step * 3);
-        } else { // star
-          let r = (i % 2 === 0) ? dist : dist * 1.9;
-          dx = Math.cos(angle) * r;
-          dy = Math.sin(angle) * r;
-        }
-        movesStep.push({dx, dy});
-      }
-      gameState.moves.push(movesStep);
-    }
-  }
-
-  gameState.currentMove = 0;
-  gameState.moveStart = performance.now() + PREVIEW_ARROW_MS;
-  gameState.nextArrow = true;
-  gameState.animating = false;
-
-  // Vitesse de déplacement : accélère plus fort à chaque niveau (expo), mini 250ms
+  // Continuous motion speed scaling per level (faster on higher levels)
   const SPEEDUP = 0.68;
-  gameState.moveDuration = Math.max(250, MOVE_DURATION * Math.pow(SPEEDUP, level-1));
+  gameState.moveDuration = Math.max(220, MOVE_DURATION_BASE * Math.pow(SPEEDUP, level-1));
+
+  // Build moves so that the sum of deltas reaches the end positions
+  gameState.moves = buildSmoothPathMoves(FORMATION.map(p=>({...p})), endPositions, steps, level);
+
+  // Reset timeline
+  gameState.currentMove = 0;
+  gameState.moveStartTime = performance.now();
 }
 
-// Ajuste les cibles pour éviter les collisions et rester dans les limites
+function buildSmoothPathMoves(startPositions, endPositions, steps, level) {
+  // Create an array of steps, each step contains 25 deltas
+  const path = [];
+
+  // Slight swirl amplitude to avoid straight-line overlap, decays to 0
+  const baseAmp = Math.min(12, 6 + level * 1.2);
+  const angOffset = Math.PI / 7;
+
+  let prevPositions = startPositions.map(p => ({...p}));
+  for (let s = 1; s <= steps; s++) {
+    const t = easeInOutCubic(s / steps);
+    const amp = baseAmp * (1 - t); // decay
+    const stepTargets = [];
+
+    for (let i = 0; i < MUSICIANS; i++) {
+      const start = startPositions[i];
+      const end = endPositions[i];
+      // Base interpolation
+      let target = lerpPt(start, end, t);
+
+      // Add a small orthogonal swirl to avoid collision lines
+      const vx = end.x - start.x;
+      const vy = end.y - start.y;
+      const len = Math.hypot(vx, vy) || 1;
+      const nx = -vy / len, ny = vx / len; // perpendicular
+      const swirl = Math.sin(t * Math.PI * 2 + i * 0.33 + angOffset) * amp;
+      target.x += nx * swirl;
+      target.y += ny * swirl;
+
+      stepTargets.push(target);
+    }
+
+    // Adjust for collisions and bounds
+    const adjusted = resolveTargets(prevPositions, stepTargets);
+    // Construct deltas
+    const deltas = adjusted.map((p, i) => ({ dx: p.x - prevPositions[i].x, dy: p.y - prevPositions[i].y }));
+    path.push(deltas);
+    // Next prev = adjusted
+    prevPositions = adjusted;
+  }
+
+  // Force the very last adjusted positions to exact end positions (snaps exactly into shape)
+  const lastStep = path[path.length - 1];
+  for (let i = 0; i < MUSICIANS; i++) {
+    const before = { x: prevPositions[i].x - lastStep[i].dx, y: prevPositions[i].y - lastStep[i].dy };
+    lastStep[i].dx = endPositions[i].x - before.x;
+    lastStep[i].dy = endPositions[i].y - before.y;
+  }
+
+  return path;
+}
+
+// Adjust target positions to avoid overlap and keep inside bounds
 function resolveTargets(fromPositions, targetPositions) {
   const N = targetPositions.length;
   let newPos = targetPositions.map(p => ({x: p.x, y: p.y}));
 
-  // 1) Clamp initial vers les bords (avec marge variable)
+  // Initial clamp to bounds
   for (let i = 0; i < N; i++) {
-    const margin = (i === gameState.playerIdx) ? ZONE_RADIUS : PNJ_RADIUS;
+    const margin = (i === 12) ? ZONE_RADIUS : PNJ_RADIUS; // player's slot index = 12
     newPos[i] = clampIntoBounds(newPos[i], margin);
   }
 
-  // 2) Itérations de séparation des PNJ trop proches + re-clamp
+  // Iteratively separate close PNJ and re-clamp
   let changed = true, iter = 0;
   while (changed && iter < 12) {
     changed = false;
@@ -239,118 +258,246 @@ function resolveTargets(fromPositions, targetPositions) {
           changed = true;
           let nx = dx / (d || 1), ny = dy / (d || 1);
           let push = (MIN_DIST - d) / 2;
-          // Déplace équitablement
           newPos[i].x -= nx * push; newPos[i].y -= ny * push;
           newPos[j].x += nx * push; newPos[j].y += ny * push;
-          // Re-clamp après déplacement
-          newPos[i] = clampIntoBounds(newPos[i], (i===gameState.playerIdx)? ZONE_RADIUS : PNJ_RADIUS);
-          newPos[j] = clampIntoBounds(newPos[j], (j===gameState.playerIdx)? ZONE_RADIUS : PNJ_RADIUS);
+          // Re-clamp
+          newPos[i] = clampIntoBounds(newPos[i], (i===12)? ZONE_RADIUS : PNJ_RADIUS);
+          newPos[j] = clampIntoBounds(newPos[j], (j===12)? ZONE_RADIUS : PNJ_RADIUS);
         }
       }
     }
     iter++;
   }
 
-  // 3) Retour
   return newPos;
 }
 
+// Define final shape positions for each level (1..10)
+function getLevelFinalShapePositions(level) {
+  const b = getBounds();
+  const cx = (b.left + b.right) / 2;
+  const cy = (b.top + b.bottom) / 2;
+  const w = (b.right - b.left);
+  const h = (b.bottom - b.top);
+  const radius = Math.min(w, h) * 0.35;
+
+  switch(level) {
+    case 1:  // Diamond
+      return distributeAlongPolyline(diamondVertices(cx, cy, radius), MUSICIANS);
+    case 2:  // Circle
+      return pointsOnCircle(cx, cy, radius, MUSICIANS);
+    case 3:  // Square (grid 5x5)
+      return grid5x5(cx, cy, Math.min(w, h) * 0.55);
+    case 4:  // 5-point Star
+      return distributeAlongPolyline(starVertices(cx, cy, radius*0.55, radius, -Math.PI/2), MUSICIANS);
+    case 5:  // Triangle
+      return distributeAlongPolyline(polygonVertices(cx, cy, 3, radius, -Math.PI/2), MUSICIANS);
+    case 6:  // Hexagon
+      return distributeAlongPolyline(polygonVertices(cx, cy, 6, radius, -Math.PI/2), MUSICIANS);
+    case 7:  // Plus (+)
+      return plusShape(cx, cy, radius);
+    case 8:  // Pentagon
+      return distributeAlongPolyline(polygonVertices(cx, cy, 5, radius, -Math.PI/2), MUSICIANS);
+    case 9:  // X
+      return xShape(cx, cy, radius);
+    case 10: // Octagon
+      return distributeAlongPolyline(polygonVertices(cx, cy, 8, radius, -Math.PI/2), MUSICIANS);
+    default:
+      return pointsOnCircle(cx, cy, radius, MUSICIANS);
+  }
+}
+
+// Geometry helpers to create shape target points
+function polygonVertices(cx, cy, sides, r, rot=0) {
+  const verts = [];
+  for (let i=0; i<sides; i++) {
+    const a = rot + i * 2*Math.PI/sides;
+    verts.push({ x: cx + Math.cos(a)*r, y: cy + Math.sin(a)*r });
+  }
+  verts.push(verts[0]); // close
+  return verts;
+}
+function starVertices(cx, cy, innerR, outerR, rot=0, points=5) {
+  const verts = [];
+  for (let i=0; i<points*2; i++) {
+    const r = (i%2===0) ? outerR : innerR;
+    const a = rot + i * Math.PI/points;
+    verts.push({ x: cx + Math.cos(a)*r, y: cy + Math.sin(a)*r });
+  }
+  verts.push(verts[0]);
+  return verts;
+}
+function diamondVertices(cx, cy, r) {
+  const verts = [
+    {x: cx, y: cy - r},
+    {x: cx + r, y: cy},
+    {x: cx, y: cy + r},
+    {x: cx - r, y: cy},
+    {x: cx, y: cy - r}
+  ];
+  return verts;
+}
+function distributeAlongPolyline(verts, count) {
+  // Compute cumulative length
+  const segs = [];
+  let total = 0;
+  for (let i = 0; i < verts.length-1; i++) {
+    const p = verts[i], q = verts[i+1];
+    const len = Math.hypot(q.x - p.x, q.y - p.y);
+    segs.push({p, q, len});
+    total += len;
+  }
+  const step = total / count;
+  const pts = [];
+  let distAcc = 0, segIdx = 0, segPos = 0;
+  for (let k = 0; k < count; k++) {
+    const targetDist = k * step;
+    while (segIdx < segs.length && targetDist > segPos + segs[segIdx].len) {
+      segPos += segs[segIdx].len;
+      segIdx++;
+    }
+    if (segIdx >= segs.length) {
+      pts.push({...segs[segs.length-1].q});
+    } else {
+      const seg = segs[segIdx];
+      const t = (targetDist - segPos) / (seg.len || 1);
+      pts.push(lerpPt(seg.p, seg.q, t));
+    }
+  }
+  return pts.map(p => clampIntoBounds(p, PNJ_RADIUS));
+}
+function pointsOnCircle(cx, cy, r, count) {
+  const pts = [];
+  for (let i=0; i<count; i++) {
+    const a = -Math.PI/2 + i * 2*Math.PI / count;
+    pts.push({ x: cx + Math.cos(a)*r, y: cy + Math.sin(a)*r });
+  }
+  return pts.map(p => clampIntoBounds(p, PNJ_RADIUS));
+}
+function grid5x5(cx, cy, size) {
+  const pts = [];
+  const step = size / 4; // 5 points => 4 intervals
+  const startX = cx - size/2;
+  const startY = cy - size/2;
+  for (let r=0; r<5; r++) {
+    for (let c=0; c<5; c++) {
+      pts.push({ x: startX + c*step, y: startY + r*step });
+    }
+  }
+  return pts.map(p => clampIntoBounds(p, PNJ_RADIUS));
+}
+function plusShape(cx, cy, r) {
+  // Build 25 points shaped like a plus
+  const pts = [];
+  const arm = Math.round(MUSICIANS / 5); // distribute on arms
+  const step = r / 4;
+  // Vertical arm (center column)
+  for (let i=-2; i<=2; i++) pts.push({ x: cx, y: cy + i*step });
+  // Horizontal arm (center row), skip center already used
+  for (let i=-2; i<=2; i++) if (i!==0) pts.push({ x: cx + i*step, y: cy });
+  // Fill remaining by adding near-center dots symmetrically
+  while (pts.length < MUSICIANS) {
+    const k = pts.length;
+    const off = 0.6 + 0.2*((k%4)-1.5);
+    pts.push({ x: cx + off*step, y: cy + off*step });
+  }
+  return pts.slice(0, MUSICIANS).map(p => clampIntoBounds(p, PNJ_RADIUS));
+}
+function xShape(cx, cy, r) {
+  const pts = [];
+  const step = r / 4;
+  // Diagonal TL->BR
+  for (let i=-2; i<=2; i++) pts.push({ x: cx + i*step, y: cy + i*step });
+  // Diagonal BL->TR (skip center to avoid duplicate)
+  for (let i=-2; i<=2; i++) if (i!==0) pts.push({ x: cx + i*step, y: cy - i*step });
+  // Fill remaining near arms
+  while (pts.length < MUSICIANS) {
+    const i = pts.length;
+    pts.push({ x: cx + (Math.random()*0.5-0.25)*step, y: cy + (Math.random()*0.5-0.25)*step });
+  }
+  return pts.slice(0, MUSICIANS).map(p => clampIntoBounds(p, PNJ_RADIUS));
+}
+
+// Prepare targets for a given step index based on gameState.moves
+function setStepTargets(stepIdx) {
+  const deltas = gameState.moves[stepIdx];
+  // Compute moveTo from current moveFrom
+  const rawTargets = gameState.moveFrom.map((p, i) => ({ x: p.x + deltas[i].dx, y: p.y + deltas[i].dy }));
+  const adjusted = resolveTargets(gameState.moveFrom, rawTargets);
+  gameState.moveTo = adjusted;
+
+  // Player tween based on player's slot (index 12)
+  const iP = gameState.playerIdx;
+  const dpx = adjusted[iP].x - gameState.moveFrom[iP].x;
+  const dpy = adjusted[iP].y - gameState.moveFrom[iP].y;
+  gameState.playerFrom = { x: gameState.player.x, y: gameState.player.y };
+  gameState.playerTo = { x: gameState.player.x + dpx, y: gameState.player.y + dpy };
+
+  // Also shift the smooth target and clamp
+  const newTarget = { x: playerTarget.x + dpx, y: playerTarget.y + dpy };
+  Object.assign(playerTarget, clampIntoBounds(newTarget, 30));
+}
+
 function gameLoop() {
-  if (!gameState.running) return;
+  if (!gameState || !gameState.running) return;
   update();
   render();
   requestAnimationFrame(gameLoop);
 }
 
 function update() {
-  let now = performance.now();
+  const now = performance.now();
 
-  // Animation formation
-  if (!gameState.animating && gameState.currentMove < gameState.moves.length) {
-    if (gameState.nextArrow && now > gameState.moveStart - PREVIEW_ARROW_MS) {
-      showArrow(gameState.moves[gameState.currentMove]);
-      gameState.nextArrow = false;
+  // Continuous step tweening without any pauses
+  let elapsed = now - gameState.moveStartTime;
+  while (elapsed >= gameState.moveDuration) {
+    // Finish this step immediately
+    for (let i=0; i<FORMATION.length; i++) {
+      FORMATION[i].x = gameState.moveTo[i].x;
+      FORMATION[i].y = gameState.moveTo[i].y;
     }
-    if (now > gameState.moveStart) {
-      gameState.animating = true;
-      gameState.moveStartTime = now;
-      gameState.moveFrom = FORMATION.map(m => ({x: m.x, y: m.y}));
+    gameState.player.x = gameState.playerTo.x;
+    gameState.player.y = gameState.playerTo.y;
 
-      const movesStep = gameState.moves[gameState.currentMove];
-
-      // Cibles brutes
-      const rawTargets = FORMATION.map((m, i) => ({
-        x: m.x + movesStep[i].dx,
-        y: m.y + movesStep[i].dy
-      }));
-
-      // Ajustement collisions + limites
-      const adjustedTargets = resolveTargets(gameState.moveFrom, rawTargets);
-      gameState.moveTo = adjustedTargets;
-
-      gameState.playerFrom = {x: gameState.player.x, y: gameState.player.y};
-      // Delta réel appliqué au slot du joueur (après ajustement)
-      const iP = gameState.playerIdx;
-      const dpx = adjustedTargets[iP].x - gameState.moveFrom[iP].x;
-      const dpy = adjustedTargets[iP].y - gameState.moveFrom[iP].y;
-      gameState.playerTo = {
-        x: gameState.player.x + dpx,
-        y: gameState.player.y + dpy
-      };
-
-      // Déplace aussi la cible, clamp dans la zone
-      const newTarget = { x: playerTarget.x + dpx, y: playerTarget.y + dpy };
-      Object.assign(playerTarget, clampIntoBounds(newTarget, 30));
+    // Advance to next step or complete the level
+    gameState.currentMove++;
+    if (gameState.currentMove >= gameState.moves.length) {
+      completeLevel();
+      return;
     }
+
+    // Prepare next step
+    gameState.moveFrom = FORMATION.map(p => ({...p}));
+    setStepTargets(gameState.currentMove);
+
+    // Consume one duration and continue (to catch up if frame was late)
+    gameState.moveStartTime += gameState.moveDuration;
+    elapsed = now - gameState.moveStartTime;
   }
 
-  if (gameState.animating) {
-    let p = Math.min(1, (now - gameState.moveStartTime) / gameState.moveDuration);
-    for (let i = 0; i < FORMATION.length; i++) {
-      FORMATION[i].x = gameState.moveFrom[i].x + (gameState.moveTo[i].x - gameState.moveFrom[i].x) * p;
-      FORMATION[i].y = gameState.moveFrom[i].y + (gameState.moveTo[i].y - gameState.moveFrom[i].y) * p;
-    }
-    gameState.player.x = gameState.playerFrom.x + (gameState.playerTo.x - gameState.playerFrom.x) * p;
-    gameState.player.y = gameState.playerFrom.y + (gameState.playerTo.y - gameState.playerFrom.y) * p;
-    if (p >= 1) {
-      gameState.animating = false;
-      gameState.currentMove++;
-      gameState.moveStart = now + PREVIEW_ARROW_MS;
-      gameState.nextArrow = true;
-
-      // Verrouille positions finales (déjà dans la zone)
-      for (let i = 0; i < FORMATION.length; i++) {
-        FORMATION[i].x = gameState.moveTo[i].x;
-        FORMATION[i].y = gameState.moveTo[i].y;
-      }
-      gameState.player.x = gameState.playerTo.x;
-      gameState.player.y = gameState.playerTo.y;
-
-      // Fin du niveau
-      if (gameState.currentMove >= gameState.moves.length) {
-        completeLevel();
-        return;
-      }
-    }
+  // Interpolate current step
+  const t = clamp(elapsed / gameState.moveDuration, 0, 1);
+  for (let i=0; i<FORMATION.length; i++) {
+    FORMATION[i].x = lerp(gameState.moveFrom[i].x, gameState.moveTo[i].x, t);
+    FORMATION[i].y = lerp(gameState.moveFrom[i].y, gameState.moveTo[i].y, t);
   }
+  gameState.player.x = lerp(gameState.playerFrom.x, gameState.playerTo.x, t);
+  gameState.player.y = lerp(gameState.playerFrom.y, gameState.playerTo.y, t);
 
-  // --- SUIVI FLUIDE DU CURSEUR/DOIGT ---
-  const FOLLOW_SPEED = 0.2; // un peu plus réactif
-  // Clamp target avant d'aller vers lui
+  // Smooth follow for manual control
+  const FOLLOW_SPEED = 0.22;
   Object.assign(playerTarget, clampIntoBounds(playerTarget, 30));
   gameState.player.x += (playerTarget.x - gameState.player.x) * FOLLOW_SPEED;
   gameState.player.y += (playerTarget.y - gameState.player.y) * FOLLOW_SPEED;
-  // Clamp position joueur au cas où
+  // Clamp player hard to bounds
   const clampedPlayer = clampIntoBounds({x: gameState.player.x, y: gameState.player.y}, 30);
   gameState.player.x = clampedPlayer.x;
   gameState.player.y = clampedPlayer.y;
 
-  // Timer hors zone
+  // Out-of-zone timer/score
   if (!isPlayerInZone()) {
     gameState.player.outZoneMs += 16;
-    if (gameState.player.outZoneMs > MAX_OUT_ZONE_MS) {
-      endGame();
-    }
+    if (gameState.player.outZoneMs > MAX_OUT_ZONE_MS) endGame();
   } else {
     gameState.player.outZoneMs = 0;
     gameState.score++;
@@ -358,64 +505,65 @@ function update() {
 }
 
 function render() {
-  // Fond pelouse
+  // Background grass
   ctx.fillStyle = colors.pelouse[0];
-  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
 
-  // Zone de jeu (rectangulaire) bien délimitée
+  // Game area and darker outer grass (crowd area reduced)
   const b = getBounds();
 
-  // Pelouse plus sombre en dehors de la zone de jeu
   ctx.fillStyle = colors.pelouseDark;
-  // Haut
+  // Top
   ctx.fillRect(0, 0, CANVAS_W, b.top);
-  // Bas
+  // Bottom
   ctx.fillRect(0, b.bottom, CANVAS_W, CANVAS_H - b.bottom);
-  // Gauche
+  // Left
   ctx.fillRect(0, b.top, b.left, b.bottom - b.top);
-  // Droite
+  // Right
   ctx.fillRect(b.right, b.top, CANVAS_W - b.right, b.bottom - b.top);
 
-  // Lignes blanches du terrain
+  // Outer field lines
   ctx.strokeStyle = colors.line;
   ctx.lineWidth = 3;
   ctx.strokeRect(b.left, b.top, b.right - b.left, b.bottom - b.top);
 
-  // Public autour de la zone de jeu
+  // Crowd around (half density vs before)
   drawCrowd();
 
-  // Zone jaune du slot du joueur (ne sort jamais car FORMATION est clampé)
+  // Yellow zone at player's slot position (never leaves bounds)
   const playerIdx = gameState.playerIdx;
   ctx.beginPath();
   ctx.arc(FORMATION[playerIdx].x, FORMATION[playerIdx].y, ZONE_RADIUS, 0, 2*Math.PI);
   ctx.fillStyle = colors.zone;
   ctx.fill();
 
-  // Dessin des musiciens (sprites plus "grands" => meilleur rendu visuel)
+  // Draw musicians (higher visual resolution, with trumpets)
   for (let i=0; i<FORMATION.length; i++) {
     if (i === playerIdx) {
-      drawMusician(ctx, gameState.player.x, gameState.player.y, 1.3, true);
+      drawMusician(ctx, gameState.player.x, gameState.player.y, 1.35, true);
     } else {
-      drawMusician(ctx, FORMATION[i].x, FORMATION[i].y, 1.2, false);
+      drawMusician(ctx, FORMATION[i].x, FORMATION[i].y, 1.25, false);
     }
   }
 
+  // HUD
   document.getElementById('timer').textContent = `Niveau ${gameState.level} - Temps hors zone: ${(gameState.player.outZoneMs/1000).toFixed(2)}s`;
   document.getElementById('score').textContent = `Score: ${gameState.score}`;
 }
 
+// Trumpet band character with visible bell ("pavillon")
 function drawMusician(ctx, x, y, scale = 1.2, isPlayer = false) {
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, scale);
 
-  // Ombre
+  // Shadow
   ctx.beginPath();
-  ctx.ellipse(0, 18, 8, 4, 0, 0, 2 * Math.PI);
-  ctx.fillStyle = "rgba(0,0,0,0.18)";
+  ctx.ellipse(0, 18, 9, 5, 0, 0, 2 * Math.PI);
+  ctx.fillStyle = "rgba(0,0,0,0.22)";
   ctx.fill();
 
-  // Corps
+  // Legs base
   ctx.beginPath();
   ctx.moveTo(-5, 0);
   ctx.lineTo(5, 0);
@@ -424,162 +572,182 @@ function drawMusician(ctx, x, y, scale = 1.2, isPlayer = false) {
   ctx.fillStyle = "#222";
   ctx.fill();
 
-  // Pieds
+  // Feet
   ctx.beginPath();
-  ctx.ellipse(-2, 18, 2, 1, 0, 0, 2 * Math.PI);
-  ctx.ellipse(2, 18, 2, 1, 0, 0, 2 * Math.PI);
+  ctx.ellipse(-2, 18, 2.1, 1.2, 0, 0, 2 * Math.PI);
+  ctx.ellipse(2, 18, 2.1, 1.2, 0, 0, 2 * Math.PI);
   ctx.fillStyle = "#111";
   ctx.fill();
 
-  // Veste
+  // Jacket
   ctx.beginPath();
-  ctx.moveTo(-7, -8);
-  ctx.lineTo(-3, 8);
-  ctx.lineTo(3, 8);
-  ctx.lineTo(7, -8);
-  ctx.lineTo(0, -12);
+  ctx.moveTo(-7.5, -8);
+  ctx.lineTo(-3.2, 8);
+  ctx.lineTo(3.2, 8);
+  ctx.lineTo(7.5, -8);
+  ctx.lineTo(0, -12.5);
   ctx.closePath();
   ctx.fillStyle = isPlayer ? "#FFD700" : "#d00";
   ctx.fill();
 
-  // Revers
+  // Lapel
   ctx.beginPath();
-  ctx.moveTo(-2, -9);
-  ctx.lineTo(2, -9);
-  ctx.lineTo(0, -12);
+  ctx.moveTo(-2.2, -9.5);
+  ctx.lineTo(2.2, -9.5);
+  ctx.lineTo(0, -12.5);
   ctx.closePath();
   ctx.fillStyle = "#fff";
   ctx.fill();
 
-  // Épaules
+  // Shoulders
   ctx.beginPath();
-  ctx.moveTo(-7, -8);
-  ctx.lineTo(-10, -3);
-  ctx.lineTo(-7, 3);
-  ctx.lineTo(-5, -6);
+  ctx.moveTo(-7.5, -8);
+  ctx.lineTo(-10.5, -3);
+  ctx.lineTo(-7.5, 3);
+  ctx.lineTo(-5.5, -6);
   ctx.closePath();
-  ctx.moveTo(7, -8);
-  ctx.lineTo(10, -3);
-  ctx.lineTo(7, 3);
-  ctx.lineTo(5, -6);
+  ctx.moveTo(7.5, -8);
+  ctx.lineTo(10.5, -3);
+  ctx.lineTo(7.5, 3);
+  ctx.lineTo(5.5, -6);
   ctx.closePath();
   ctx.fillStyle = "#fff";
   ctx.fill();
 
-  // Tête
+  // Head
   ctx.beginPath();
-  ctx.arc(0, -14, 5, 0, 2 * Math.PI);
+  ctx.arc(0, -14, 5.2, 0, 2 * Math.PI);
   ctx.fillStyle = "#fbe2b6";
   ctx.fill();
 
-  // Chapeau
+  // Hat
   ctx.beginPath();
-  ctx.ellipse(0, -18, 6, 3, 0, 0, 2 * Math.PI);
+  ctx.ellipse(0, -18.5, 6.4, 3.2, 0, 0, 2 * Math.PI);
   ctx.fillStyle = "#fff";
   ctx.fill();
   ctx.beginPath();
-  ctx.rect(-4, -28, 8, 10);
+  ctx.rect(-4.2, -28.5, 8.4, 10.5);
   ctx.fillStyle = "#fff";
   ctx.fill();
-
-  // Details chapeau
+  // Hat stripes
   ctx.fillStyle = "#111";
-  ctx.fillRect(-4, -22, 8, 2);
+  ctx.fillRect(-4.2, -22.4, 8.4, 2.2);
   ctx.fillStyle = "#d00";
-  ctx.fillRect(-4, -28, 8, 2);
+  ctx.fillRect(-4.2, -28.5, 8.4, 2.2);
 
-  // Instrument (détail)
+  // Trumpet (held to the right, slight upward angle)
+  ctx.save();
+  const angle = -Math.PI * 0.06; // slight up
+  ctx.translate(4, -12); // near mouth
+  ctx.rotate(angle);
+  // Tube
+  ctx.fillStyle = colors.trumpetShadow;
+  ctx.fillRect(0, -1, 18, 2);
+  // Valve block
+  ctx.fillStyle = colors.trumpetBrass;
+  ctx.fillRect(6, -2, 3, 4);
+  // Bell (pavillon) with gradient
+  const grd = ctx.createRadialGradient(22, 0, 1, 22, 0, 6);
+  grd.addColorStop(0, "#fff2a8");
+  grd.addColorStop(0.6, colors.trumpetBrass);
+  grd.addColorStop(1, colors.trumpetShadow);
+  ctx.beginPath();
+  ctx.ellipse(22, 0, 6, 4, 0, 0, 2*Math.PI);
+  ctx.fillStyle = grd;
+  ctx.fill();
+  ctx.restore();
+
+  // Small instrument detail on chest
   ctx.fillStyle = "#fff";
-  ctx.fillRect(-1, -5, 2, 9);
+  ctx.fillRect(-1.2, -5, 2.4, 9.5);
 
   ctx.restore();
 }
 
-// Dessine le public autour de la zone de jeu
+// Crowd around the game area (reduced thickness/density => "half crowd")
 function drawCrowd() {
   const b = getBounds();
-  // Définir 4 bandes: haut, bas, gauche, droite
-  drawCrowdRegion(0, 0, CANVAS_W, b.top, 12, 10); // haut
-  drawCrowdRegion(0, b.bottom, CANVAS_W, CANVAS_H, 12, 10); // bas
-  drawCrowdRegion(0, b.top, b.left, b.bottom, 10, 12); // gauche
-  drawCrowdRegion(b.right, b.top, CANVAS_W, b.bottom, 10, 12); // droite
+  // Regions: top, bottom, left, right
+  drawCrowdRegion(0, 0, CANVAS_W, b.top, 20, 18); // top (sparser)
+  drawCrowdRegion(0, b.bottom, CANVAS_W, CANVAS_H, 20, 18); // bottom
+  drawCrowdRegion(0, b.top, b.left, b.bottom, 18, 20); // left
+  drawCrowdRegion(b.right, b.top, CANVAS_W, b.bottom, 18, 20); // right
 }
-
-function drawCrowdRegion(x0, y0, x1, y1, stepX = 12, stepY = 12) {
+function drawCrowdRegion(x0, y0, x1, y1, stepX = 18, stepY = 18) {
   const w = x1 - x0, h = y1 - y0;
   if (w <= 0 || h <= 0) return;
   const colorsCrowd = colors.crowd;
 
-  for (let y = y0 + 6; y < y1 - 4; y += stepY) {
-    // Décalage pour effet de foule
+  for (let y = y0 + 8; y < y1 - 6; y += stepY) {
     const offset = ((y / stepY) % 2) * (stepX / 2);
-    for (let x = x0 + 6 + offset; x < x1 - 4; x += stepX) {
+    for (let x = x0 + 8 + offset; x < x1 - 6; x += stepX) {
       const c = colorsCrowd[(Math.random() * colorsCrowd.length) | 0];
-      // Tête
+      // Head
       ctx.beginPath();
       ctx.arc(x, y, 2.2, 0, 2 * Math.PI);
       ctx.fillStyle = c;
       ctx.fill();
-      // Épaules
-      ctx.fillStyle = "rgba(0,0,0,0.15)";
-      ctx.fillRect(x - 2.8, y + 2.2, 5.6, 1.5);
+      // Shoulders
+      ctx.fillStyle = "rgba(0,0,0,0.14)";
+      ctx.fillRect(x - 3.2, y + 2.2, 6.4, 1.6);
     }
   }
 }
 
-// --- SUIVI FLUIDE DU CURSEUR/DOIGT ---
+// Pointer handling (always allow reaching yellow zone)
 function handlePointer(e) {
   e.preventDefault?.();
-  let rect = canvas.getBoundingClientRect();
-  let x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
-  let y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+  const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
   const clamped = clampIntoBounds({x, y}, 30);
   playerTarget.x = clamped.x;
   playerTarget.y = clamped.y;
 }
 
 function isPlayerInZone() {
-  let idx = gameState.playerIdx;
-  let px = FORMATION[idx].x, py = FORMATION[idx].y;
-  let dx = gameState.player.x - px, dy = gameState.player.y - py;
+  const idx = gameState.playerIdx;
+  const px = FORMATION[idx].x, py = FORMATION[idx].y;
+  const dx = gameState.player.x - px, dy = gameState.player.y - py;
   return (dx*dx + dy*dy) < (ZONE_RADIUS*ZONE_RADIUS);
 }
 
-function showArrow(move) {
-  // (optionnel) affichage d'une flèche directionnelle sur le canvas
-}
-
 function completeLevel() {
+  // Snap exactly to final shape (already ensured by last step), then overlay
   gameState.running = false;
   if (gameState.level >= 10) {
     showOverlay("Bravo ! Tu as terminé les 10 parades. Clique pour rejouer", "Rejouer");
   } else {
-    showOverlay("Bravo! On passe à la prochaine parade", "Continuer");
+    showOverlay("Bravo ! Formation atteinte. On passe à la prochaine parade.", "Continuer");
   }
 }
 
 function handleOverlayClick() {
-  const overlayMessage = document.getElementById('overlay-message').textContent;
+  const overlayMessage = document.getElementById('overlay-message').textContent.toLowerCase();
   if (overlayMessage.includes("rejouer") || overlayMessage.includes("terrine")) {
     if (musicAudio) musicAudio.pause();
     hideOverlay();
     location.reload();
   } else {
+    // Next level
     gameState.level++;
     hideOverlay();
-    // Reset player position to formation center
+
+    // Reset player to center slot
     const center = FORMATION[gameState.playerIdx];
     gameState.player.x = center.x;
     gameState.player.y = center.y;
     playerTarget.x = center.x;
     playerTarget.y = center.y;
     gameState.player.outZoneMs = 0;
-    // Initialize new level
+
     initLevel(gameState.level);
-    // Ensure game loop is running
-    if (gameState.running) {
-      requestAnimationFrame(gameLoop);
-    }
+    // Prepare first step
+    gameState.moveFrom = FORMATION.map(p => ({...p}));
+    setStepTargets(0);
+    gameState.moveStartTime = performance.now();
+    gameState.running = true;
+    requestAnimationFrame(gameLoop);
   }
 }
 
