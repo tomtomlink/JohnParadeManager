@@ -97,7 +97,7 @@ function initLevel(level) {
     gameState.moves.push(move);
   }
   gameState.currentMove = 0;
-  gameState.moveStart = performance.now() + PREVIEW_ARROW_MS + 2000; // Give extra time at start
+  gameState.moveStart = performance.now() + PREVIEW_ARROW_MS;
   gameState.nextArrow = true;
 }
 
@@ -181,6 +181,22 @@ function update() {
   // Timer hors zone
   if (!isPlayerInZone()) {
     gameState.player.outZoneMs += 16;
+    
+    // Gentle auto-correction when player is getting close to losing
+    // This helps players follow the moving formation while still allowing free movement
+    if (gameState.player.outZoneMs > MAX_OUT_ZONE_MS * 0.7) { // When 70% of time is used
+      let idx = gameState.playerIdx;
+      let zoneX = FORMATION[idx].x;
+      let zoneY = FORMATION[idx].y;
+      let dx = zoneX - gameState.player.x;
+      let dy = zoneY - gameState.player.y;
+      
+      // Gently pull player toward zone center (subtle assistance)
+      let pullStrength = 0.02; // Very gentle
+      gameState.player.x += dx * pullStrength;
+      gameState.player.y += dy * pullStrength;
+    }
+    
     if (gameState.player.outZoneMs > MAX_OUT_ZONE_MS) {
       endGame();
     }
