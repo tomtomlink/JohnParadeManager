@@ -1,7 +1,13 @@
-// John Parade Manager – joystick adouci (deadzone élargie), pubs "Prod-S Arena" (droite texte à 180°), HUD haut modernisé,
-// 4 persos jouables (Minik joufflu moustachu bleu, Amélie sorcière orange à chapeau pointu, Candice poupée; John garde la trompette),
-// Logo image centré (sans fondu) dans un panneau vert transparent ajusté, chorégraphies + fin niveau 10
-// John (PNJ et joueur) en bleu marine. Alerte HORS ZONE: compte à rebours 5→0, ne couvre jamais le cercle; si le cercle est centré, popup en bas.
+// John Parade Manager
+// - Joystick adouci (deadzone élargie), déplacement joueur
+// - Pubs "Prod-S Arena" (bandeau droit texte à 180°)
+// - HUD haut modernisé (Niveau + Score)
+// - 4 persos jouables (Minik bleu, Amélie orange, Candice poupée; John garde la trompette)
+// - Logo image centré, panneau menu responsive, police nette d’inspiration militaire
+// - Alerte HORS ZONE: compte à rebours 5→0, ne couvre jamais le cercle; si le cercle est centré, popup en bas
+// - Défaite: message aléatoire ("Terrine!", "10 Jours d'arrêt!", "Réformé!")
+// - High Score: bouton + fenêtre type borne d’arcade (défilement), scores en localStorage
+// - Rendu net (DPR aware) des canvases UI, ajustements mobiles (logo non coupé)
 
 let CANVAS_W = 360, CANVAS_H = 640;
 
@@ -42,6 +48,11 @@ const JOHN_PLAYER_MAIN = NAVY;
 const JOHN_NPC_MAIN = NAVY;
 const JOHN_ACCENT = NAVY;
 
+// Polices
+const MENU_FONT = '"Russo One", system-ui, sans-serif';          // menus
+const HUD_TITLE_FONT = '"Black Ops One", system-ui, sans-serif';  // titres HUD / alertes
+const HUD_NUM_FONT = '"Teko", system-ui, sans-serif';             // chiffres HUD
+
 let canvas, ctx, gameState = null;
 let musicAudio = null;
 let selectedCharacter = 'john';
@@ -55,11 +66,29 @@ const JOY_SENS_POW = 1.35; // courbe non-linéaire (>1 = plus doux près du cent
 const INPUT = { hasPointer: false, hasTouch: false, hasMouse: false };
 
 // Fichier du logo principal
-const MAIN_LOGO_SRC = 'menu-logo.png'; // met ton image à la racine ou adapte le chemin
+const MAIN_LOGO_SRC = 'menu-logo.png';
 
-// Fonts HUD / Alerte (style militaire moderne)
-const HUD_TITLE_FONT = '"Black Ops One", system-ui, sans-serif';
-const HUD_NUM_FONT = '"Teko", system-ui, sans-serif';
+// High Score UI state
+const HS_STORAGE_KEY = 'jpm_highscores';
+let hsState = {
+  visible: false,
+  canvas: null,
+  ctx: null,
+  lastTS: 0,
+  offset: 0,
+  speed: 28, // px/sec
+  rowH: 34,
+  entries: [],
+  rafId: null
+};
+
+// Options d’envoi au repo (optionnel, si fournis)
+function getRepoConfig(){
+  const repo = window.GH_REPO || document.querySelector('meta[name="gh-repo"]')?.content || '';
+  const token = window.GH_TOKEN || document.querySelector('meta[name="gh-token"]')?.content || '';
+  const branch = window.GH_BRANCH || document.querySelector('meta[name="gh-branch"]')?.content || 'main';
+  return { repo, token, branch };
+}
 
 document.addEventListener('DOMContentLoaded', () => {
   canvas = document.getElementById('game-canvas');
@@ -72,10 +101,10 @@ document.addEventListener('DOMContentLoaded', () => {
   INPUT.hasTouch = 'ontouchstart' in window || (navigator.maxTouchPoints|0) > 0;
   INPUT.hasMouse = 'onmousedown' in window;
 
-  ensureHUDFonts(); // charge les polices HUD / alerte
-  // UI menu: logo image centré + fond pelouse + suppression du vieux titre
+  ensureHUDFonts();
   ensureMainLogo();
   setMenuGrassBackground();
+  ensureHighScoreUI(); // bouton + modal high score
 
   ensureCandiceCard();
 
@@ -87,14 +116,29 @@ document.addEventListener('DOMContentLoaded', () => {
   const modal = document.getElementById('select-modal');
   const mainMenu = document.getElementById('main-menu');
 
+  function scaleCanvasToDPR(cv){
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const rect = cv.getBoundingClientRect();
+    if (rect.width && rect.height){
+      cv.style.width = rect.width + 'px';
+      cv.style.height = rect.height + 'px';
+      cv.width = Math.round(rect.width * dpr);
+      cv.height = Math.round(rect.height * dpr);
+    }
+    const c = cv.getContext('2d');
+    c.setTransform(1,0,0,1,0,0);
+    c.scale(dpr, dpr);
+    return c;
+  }
+
   function updateCharLogo() {
     if (!charLogo || !(charLogo instanceof HTMLCanvasElement)) return;
-    const c = charLogo.getContext('2d');
-    c.clearRect(0,0,charLogo.width,charLogo.height);
+    const c = scaleCanvasToDPR(charLogo);
+    c.clearRect(0,0,charLogo.clientWidth,charLogo.clientHeight);
     const pat = makeGrassPattern(c);
-    c.save(); c.fillStyle = pat; c.fillRect(0,0,charLogo.width,charLogo.height); c.restore();
+    c.save(); c.fillStyle = pat; c.fillRect(0,0,charLogo.clientWidth,charLogo.clientHeight); c.restore();
     c.save();
-    c.translate(charLogo.width/2, charLogo.height/2 + 1);
+    c.translate(charLogo.clientWidth/2, charLogo.clientHeight/2 + 1);
     if (selectedCharacter==='minik') drawMinik(c,false,0,0,0);
     else if (selectedCharacter==='amelie') drawAmelie(c,false,0,0,0);
     else if (selectedCharacter==='candice') drawCandice(c,false,0,0,0);
@@ -107,7 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
     modal.style.display = 'none';
   }
 
-  // Sélection personnage (y compris Candice injectée)
+  // Sélection personnage
   const cards = document.querySelectorAll('.char-card');
   for (let i=0;i<cards.length;i++){
     const btn = cards[i];
@@ -135,7 +179,6 @@ document.addEventListener('DOMContentLoaded', () => {
       startGame();
     });
   } else {
-    // Fallback si pas de bouton
     startGame();
   }
 
@@ -178,29 +221,32 @@ document.addEventListener('DOMContentLoaded', () => {
   resizeCanvas();
   window.addEventListener('resize', () => {
     resizeCanvas();
+    resizeHighScoreCanvas();
+    drawCharacterPreviews();
+    updateCharLogo();
   });
 });
 
-/* MENU: logo image centré (sans fondu) + panneau vert transparent ajusté */
+/* MENU: logo image centré + panneau + bouton High Score + police nette */
 function ensureMainLogo(){
   const mm = document.getElementById('main-menu');
   if (!mm) return;
 
-  // Supprimer tout ancien canvas de titre s'il existe encore
+  // Supprimer ancien canvas s'il existe
   const oldCanvas = document.getElementById('title-logo');
   if (oldCanvas && oldCanvas.parentNode) oldCanvas.parentNode.removeChild(oldCanvas);
 
-  // Supprimer le texte "Edition Tatoo de Merde"
+  // Supprimer texte offensant éventuel
   removeOffensiveText("Edition Tatoo de Merde");
 
-  // Cacher un éventuel H1 texte "John Parade Manager"
+  // Cacher H1 texte "John Parade Manager"
   const maybeTitles = document.querySelectorAll('h1,h2,.app-title,.title');
   maybeTitles.forEach(n=>{
     const t = (n.textContent||'').trim().toLowerCase();
     if (t.includes('john parade manager')) n.style.display = 'none';
   });
 
-  // Panneau du menu (zone verte transparente)
+  // Panneau menu
   let panel = document.getElementById('menu-panel');
   if (!panel){
     panel = document.createElement('div');
@@ -208,7 +254,7 @@ function ensureMainLogo(){
     document.getElementById('main-menu').insertBefore(panel, mm.firstChild || null);
   }
 
-  // Wrapper du logo
+  // Wrapper logo
   let wrap = document.getElementById('main-logo-wrap');
   if (!wrap){
     wrap = document.createElement('div');
@@ -219,7 +265,7 @@ function ensureMainLogo(){
     panel.insertBefore(wrap, panel.firstChild || null);
   }
 
-  // Image du logo
+  // Image logo
   let img = document.getElementById('main-logo');
   if (!img){
     img = document.createElement('img');
@@ -231,7 +277,7 @@ function ensureMainLogo(){
   }
   img.src = (typeof MAIN_LOGO_SRC !== 'undefined') ? MAIN_LOGO_SRC : 'menu-logo.png';
 
-  // Zone des boutons (play/select/etc.)
+  // Zone actions
   let actions = document.getElementById('menu-actions');
   if (!actions){
     actions = document.createElement('div');
@@ -240,15 +286,32 @@ function ensureMainLogo(){
     panel.appendChild(actions);
   }
 
-  // Y placer les boutons connus s'ils existent (et ne pas les dupliquer)
+  // Y placer play/select si présents
   const play = document.getElementById('play-btn');
   const select = document.getElementById('select-btn');
   if (play && play.parentElement !== actions) actions.appendChild(play);
   if (select && select.parentElement !== actions) actions.appendChild(select);
 
-  // Injecter/mettre à jour le style menu
+  // Bouton High Score (à droite de sélection du musicien)
+  let hsBtn = document.getElementById('highscore-btn');
+  if (!hsBtn){
+    hsBtn = document.createElement('button');
+    hsBtn.id = 'highscore-btn';
+    hsBtn.type = 'button';
+    hsBtn.className = 'menu-btn';
+    hsBtn.textContent = 'High Score';
+    hsBtn.addEventListener('click', (e)=>{ e.preventDefault(); openHighScore(); });
+    if (select && select.parentElement === actions){
+      if (select.nextSibling) actions.insertBefore(hsBtn, select.nextSibling);
+      else actions.appendChild(hsBtn);
+    } else {
+      actions.appendChild(hsBtn);
+    }
+  }
+
   injectMenuLogoStyles();
 }
+
 function removeOffensiveText(text){
   if (!text) return;
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
@@ -269,29 +332,62 @@ function removeOffensiveText(text){
     }
   });
 }
+
+/* Anti-flou / rendu net sur menus & modale sélection (CSS + font smoothing) */
 function injectMenuLogoStyles(){
   const STYLE_ID = 'menu-logo-style';
   const prev = document.getElementById(STYLE_ID);
   if (prev) prev.remove();
 
   const css = `
+    :root{
+      --menu-font: ${MENU_FONT};
+      --menu-text-color: #ffffff;
+      --menu-stroke: rgba(0,0,0,0.55);
+      --mobile-shift: 12px;
+    }
+
+    #main-menu,
+    #menu-panel,
+    #menu-actions,
+    #play-btn, #select-btn, #highscore-btn,
+    #select-modal,
+    .characters, .char-card, .char-name {
+      font-family: var(--menu-font);
+      color: var(--menu-text-color);
+      -webkit-text-stroke: 0.5px var(--menu-stroke);
+      text-shadow: 0 0 0.5px rgba(0,0,0,0.35), 0.5px 0.5px 0 rgba(0,0,0,0.35);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+    }
+
     #main-menu{
       background-color:#3a7950;
       background-repeat:repeat;
       background-size:96px 96px;
+
       min-height: 100vh;
+      min-height: 100dvh;
+      min-height: 100svh;
+
       width: 100%;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: flex-start;
       gap: 12px;
+
       padding: 18px 12px 24px;
+      padding-top: clamp(18px, env(safe-area-inset-top,0px) + 16px, 56px);
+
       box-sizing: border-box;
+      backface-visibility: hidden;
     }
+
     #menu-panel{
       width: min(88vw, 560px);
-      margin: 10px auto 6px auto;
+      margin: clamp(10px, env(safe-area-inset-top,0px) + 10px, 40px) auto 6px auto;
       background: rgba(70, 150, 95, 0.26);
       border: 2px solid rgba(255,255,255,0.08);
       border-radius: 16px;
@@ -301,6 +397,7 @@ function injectMenuLogoStyles(){
       flex-direction: column;
       align-items: stretch;
     }
+
     #main-logo-wrap.logo-wrap{
       width: 100%;
       margin: 0;
@@ -316,6 +413,7 @@ function injectMenuLogoStyles(){
               mask-image: none !important;
       filter: none !important;
     }
+
     #menu-actions.menu-actions{
       display: flex;
       flex-wrap: wrap;
@@ -325,6 +423,48 @@ function injectMenuLogoStyles(){
       padding: 16px;
       box-sizing: border-box;
     }
+
+    #menu-actions button,
+    #play-btn, #select-btn, #highscore-btn {
+      appearance: none;
+      border: 2px solid rgba(255,255,255,0.22);
+      border-radius: 12px;
+      background: linear-gradient(#1b2c21, #0e1a14);
+      color: var(--menu-text-color);
+      -webkit-text-stroke: 0.5px var(--menu-stroke);
+      text-shadow: 0 0 0.5px rgba(0,0,0,0.35), 0.5px 0.5px 0 rgba(0,0,0,0.35);
+      font-family: var(--menu-font);
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      padding: 10px 14px;
+      min-width: 140px;
+      cursor: pointer;
+      transition: transform .06s ease, box-shadow .06s ease, background .2s ease;
+    }
+    @media (hover:hover){
+      #menu-actions button:hover,
+      #play-btn:hover, #select-btn:hover, #highscore-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+        background: linear-gradient(#223b2d, #13261c);
+      }
+      #menu-actions button:active,
+      #play-btn:active, #select-btn:active, #highscore-btn:active {
+        transform: translateY(0px) scale(0.995);
+      }
+    }
+
+    @media (max-width: 480px), (pointer: coarse){
+      #menu-panel{
+        margin-top: calc(clamp(16px, env(safe-area-inset-top,0px) + 12px, 48px) + var(--mobile-shift));
+      }
+      #menu-actions{ padding-top: 20px; }
+      #menu-actions button,
+      #play-btn, #select-btn, #highscore-btn {
+        transform: none !important;
+      }
+    }
+
     @media (min-width: 960px){
       #main-menu{ align-items: center; }
       #menu-panel{ width: min(56vw, 720px); }
@@ -336,6 +476,7 @@ function injectMenuLogoStyles(){
   style.textContent = css;
   document.head.appendChild(style);
 }
+
 function setMenuGrassBackground(){
   const mm = document.getElementById('main-menu');
   if (!mm) return;
@@ -349,13 +490,269 @@ function setMenuGrassBackground(){
   mm.style.backgroundImage = `url(${off.toDataURL()})`;
 }
 
-/* Charger des polices modernes style militaire pour HUD et alerte */
+/* High Score UI (bouton + modal + ticker façon arcade) */
+function ensureHighScoreUI(){
+  // Style
+  if (!document.getElementById('highscore-style')){
+    const css = `
+      #highscore-modal{
+        position: fixed; inset: 0; display: none;
+        align-items: center; justify-content: center;
+        background: rgba(0,0,0,0.45);
+        z-index: 9999;
+      }
+      #highscore-card{
+        width: min(92vw, 560px);
+        height: min(82vh, 580px);
+        background: linear-gradient(#0c1511,#0a130f);
+        border: 2px solid rgba(255,255,255,0.1);
+        border-radius: 16px;
+        box-shadow: 0 18px 28px rgba(0,0,0,0.4);
+        display: flex; flex-direction: column; align-items: stretch;
+        overflow: hidden;
+      }
+      #highscore-canvas{
+        display: block;
+        width: 100%;
+        height: auto;
+        flex: 1 1 auto;
+        background: radial-gradient(ellipse at center, rgba(255,255,255,0.03), rgba(0,0,0,0.0) 60%);
+      }
+      #highscore-footer{
+        display: flex;
+        gap: 10px;
+        padding: 12px;
+        justify-content: center;
+      }
+      #highscore-close{
+        appearance: none;
+        border: 2px solid rgba(255,255,255,0.22);
+        border-radius: 10px;
+        background: linear-gradient(#1b2c21, #0e1a14);
+        color: #eaf3ff;
+        -webkit-text-stroke: 0.5px rgba(0,0,0,0.55);
+        text-shadow: 0.5px 0.5px 0 rgba(0,0,0,0.5);
+        font-family: ${MENU_FONT};
+        font-weight: 900;
+        padding: 8px 14px;
+        cursor: pointer;
+      }
+      #highscore-close:hover{
+        background: linear-gradient(#223b2d, #13261c);
+      }
+    `.trim();
+    const style = document.createElement('style');
+    style.id = 'highscore-style';
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+
+  // DOM
+  let modal = document.getElementById('highscore-modal');
+  if (!modal){
+    modal = document.createElement('div');
+    modal.id = 'highscore-modal';
+    modal.setAttribute('aria-hidden','true');
+
+    const card = document.createElement('div');
+    card.id = 'highscore-card';
+
+    const canvasHS = document.createElement('canvas');
+    canvasHS.id = 'highscore-canvas';
+    canvasHS.width = 600;
+    canvasHS.height = 480;
+
+    const footer = document.createElement('div');
+    footer.id = 'highscore-footer';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.id = 'highscore-close';
+    closeBtn.textContent = 'Fermer';
+    closeBtn.addEventListener('click', closeHighScore);
+
+    footer.appendChild(closeBtn);
+    card.appendChild(canvasHS);
+    card.appendChild(footer);
+    modal.appendChild(card);
+    document.body.appendChild(modal);
+
+    modal.addEventListener('click', (e)=>{
+      if (e.target === modal) closeHighScore();
+    });
+    window.addEventListener('keydown', (e)=>{
+      if (hsState.visible && e.key === 'Escape') closeHighScore();
+    });
+
+    hsState.canvas = canvasHS;
+    hsState.ctx = canvasHS.getContext('2d');
+    resizeHighScoreCanvas();
+  }
+}
+
+function openHighScore(){
+  ensureHighScoreUI();
+  const modal = document.getElementById('highscore-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  modal.setAttribute('aria-hidden','false');
+  hsState.visible = true;
+  hsState.entries = buildHighScoreTickerList(loadHighScores());
+  hsState.offset = 0;
+  hsState.lastTS = performance.now();
+  startHighScoreTicker();
+}
+
+function closeHighScore(){
+  const modal = document.getElementById('highscore-modal');
+  if (!modal) return;
+  stopHighScoreTicker();
+  modal.style.display = 'none';
+  modal.setAttribute('aria-hidden','true');
+  hsState.visible = false;
+}
+
+function loadHighScores(){
+  try {
+    const raw = localStorage.getItem(HS_STORAGE_KEY);
+    if (raw){
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length){
+        return normalizeScores(arr);
+      }
+    }
+  } catch(_){}
+  return [];
+}
+function saveHighScoreLocally(entry){
+  const arr = loadHighScores();
+  arr.push(entry);
+  const trimmed = normalizeScores(arr).slice(0, 50);
+  try {
+    localStorage.setItem(HS_STORAGE_KEY, JSON.stringify(trimmed));
+  } catch(_){}
+  return trimmed;
+}
+function normalizeScores(arr){
+  return arr.map(e=>({
+      name: (e.name||'---').toString().substring(0,8).toUpperCase(),
+      score: Math.max(0, parseInt(e.score||0,10)),
+      dateISO: e.dateISO || new Date().toISOString()
+    }))
+    .sort((a,b)=> (b.score - a.score) || (new Date(b.dateISO) - new Date(a.dateISO)));
+}
+function buildHighScoreTickerList(base){
+  const list = [];
+  list.push({ type:'title', text:'HIGH SCORES' });
+  list.push({ type:'spacer' });
+  for (let i=0;i<base.length;i++){
+    list.push({ type:'entry', rank: i+1, name: base[i].name, score: base[i].score });
+  }
+  list.push({ type:'spacer' });
+  list.push({ type:'spacer' });
+  return list.concat(list.slice(1));
+}
+function startHighScoreTicker(){
+  if (hsState.rafId) cancelAnimationFrame(hsState.rafId);
+  const loop = (ts)=>{
+    renderHighScoreTicker(ts);
+    hsState.rafId = requestAnimationFrame(loop);
+  };
+  hsState.rafId = requestAnimationFrame(loop);
+}
+function stopHighScoreTicker(){
+  if (hsState.rafId){ cancelAnimationFrame(hsState.rafId); hsState.rafId = null; }
+}
+function resizeHighScoreCanvas(){
+  if (!hsState.canvas) return;
+  const card = document.getElementById('highscore-card');
+  if (!card) return;
+  const dpr = Math.max(1, window.devicePixelRatio||1);
+  const cssW = Math.floor(card.clientWidth);
+  const cssH = Math.floor(card.clientHeight - 56);
+  hsState.canvas.style.width = cssW + 'px';
+  hsState.canvas.style.height = cssH + 'px';
+  hsState.canvas.width = Math.floor(cssW * dpr);
+  hsState.canvas.height = Math.floor(cssH * dpr);
+  hsState.ctx.setTransform(1,0,0,1,0,0);
+  hsState.ctx.scale(dpr, dpr);
+}
+function renderHighScoreTicker(ts){
+  const c = hsState.ctx;
+  const W = hsState.canvas.clientWidth;
+  const H = hsState.canvas.clientHeight;
+  if (!c || W <= 0 || H <= 0) return;
+
+  const dt = Math.min(0.05, Math.max(0, (ts - hsState.lastTS)/1000));
+  hsState.lastTS = ts;
+
+  hsState.offset -= hsState.speed * dt;
+  if (hsState.offset <= -hsState.rowH){
+    hsState.offset += hsState.rowH;
+    hsState.entries.push(hsState.entries.shift());
+  }
+
+  c.fillStyle = '#0b140f';
+  c.fillRect(0,0,W,H);
+
+  c.strokeStyle = 'rgba(255,255,255,0.03)';
+  c.lineWidth = 1;
+  for (let y= (hsState.offset|0); y < H; y += hsState.rowH){
+    c.beginPath();
+    c.moveTo(12, y);
+    c.lineTo(W-12, y);
+    c.stroke();
+  }
+
+  const cx = W/2;
+  let y = hsState.offset + 24;
+
+  for (let i=0; i<Math.ceil(H/hsState.rowH)+2; i++){
+    const item = hsState.entries[i % hsState.entries.length];
+    if (!item){ y += hsState.rowH; continue; }
+
+    if (item.type === 'title'){
+      const txt = item.text;
+      c.font = '900 28px ' + HUD_TITLE_FONT;
+      c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.lineWidth = 6; c.strokeStyle = 'rgba(0,0,0,0.65)';
+      c.strokeText(txt, cx, y);
+      c.fillStyle = '#eaf3ff';
+      c.fillText(txt, cx, y);
+    } else if (item.type === 'spacer'){
+      // rien
+    } else if (item.type === 'entry'){
+      c.font = '900 20px ' + MENU_FONT;
+      c.textAlign = 'left'; c.textBaseline = 'middle';
+
+      const rankStr = (item.rank<10? '0':'') + item.rank + '.';
+      const leftX = 26;
+      c.lineWidth = 5; c.strokeStyle = 'rgba(0,0,0,0.65)';
+      c.strokeText(rankStr, leftX, y);
+      c.fillStyle = '#eaf3ff';
+      c.fillText(rankStr, leftX, y);
+
+      const nameX = leftX + 56;
+      c.strokeText(item.name, nameX, y);
+      c.fillText(item.name, nameX, y);
+
+      c.textAlign = 'right';
+      c.font = '700 20px ' + HUD_NUM_FONT;
+      const scoreStr = item.score.toString().padStart(4,' ');
+      c.strokeText(scoreStr, W - 24, y);
+      c.fillText(scoreStr, W - 24, y);
+    }
+
+    y += hsState.rowH;
+  }
+}
+
+/* Charger polices (menu + HUD) */
 function ensureHUDFonts(){
   if (document.getElementById('hud-fonts')) return;
   const link = document.createElement('link');
   link.id = 'hud-fonts';
   link.rel = 'stylesheet';
-  link.href = 'https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Teko:wght@600;700&display=swap';
+  link.href = 'https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Russo+One&family=Teko:wght@600;700&display=swap';
   document.head.appendChild(link);
 }
 
@@ -389,11 +786,15 @@ function ensureCandiceCard() {
     const selBtn = document.getElementById('select-btn');
     const logo = selBtn ? selBtn.querySelector('.char-btn-logo') : null;
     if (logo && (logo instanceof HTMLCanvasElement)){
+      const dpr = Math.max(1, window.devicePixelRatio||1);
+      const rect = logo.getBoundingClientRect();
+      logo.width = Math.round(rect.width*dpr); logo.height = Math.round(rect.height*dpr);
       const c = logo.getContext('2d');
-      c.clearRect(0,0,logo.width,logo.height);
+      c.setTransform(1,0,0,1,0,0); c.scale(dpr,dpr);
+      c.clearRect(0,0,logo.clientWidth,logo.clientHeight);
       const pat = makeGrassPattern(c);
-      c.save(); c.fillStyle = pat; c.fillRect(0,0,logo.width,logo.height); c.restore();
-      c.save(); c.translate(logo.width/2, logo.height/2 + 1);
+      c.save(); c.fillStyle = pat; c.fillRect(0,0,logo.clientWidth,logo.clientHeight); c.restore();
+      c.save(); c.translate(logo.clientWidth/2, logo.clientHeight/2 + 1);
       drawCandice(c,false,0,0,0);
       c.restore();
     }
@@ -1100,7 +1501,7 @@ function drawAdStrip(x, y, w, h, orientation, label, flip180=false){
       ctx.fillText(label, px, baseY);
     }
   } else {
-    // Vertical: sur toute la hauteur
+    // Vertical
     let fontSize = w >= 26 ? 16 : 14;
     ctx.font = '800 ' + fontSize + 'px Poppins, system-ui, sans-serif';
 
@@ -1162,23 +1563,21 @@ function drawJoystick(){
   ctx.restore();
 }
 
-/* HUD (zone public haut) – Niveau et Score uniquement, police style militaire */
+/* HUD (zone public haut) – Niveau et Score uniquement */
 function drawCanvasHUD() {
   if (!gameState) return;
   const b = getBounds();
   const cx = (b.left + b.right) / 2;
 
-  // Zone du public: de y = 0 à y = b.top
   const areaTop = 0;
   const areaBottom = b.top;
   const areaH = Math.max(24, areaBottom - areaTop);
 
-  // Mise en page
   const fontSize = areaH < 48 ? 16 : 18;
   const lineGap = areaH < 48 ? 16 : 22;
   const padY = 6;
 
-  const cardH = padY * 2 + fontSize * 2 + (lineGap - fontSize); // deux lignes
+  const cardH = padY * 2 + fontSize * 2 + (lineGap - fontSize);
   const cardW = Math.min(CANVAS_W - 24, 340);
   const centerY = areaTop + areaH / 2;
   const cardY = clamp(centerY - cardH / 2, 6, areaBottom - cardH - 6);
@@ -1188,7 +1587,6 @@ function drawCanvasHUD() {
   const line1 = 'Niveau ' + gameState.level;
   const line2 = 'Score: ' + displayScore;
 
-  // Fond semi-transparent
   ctx.save();
   const r = 12;
   ctx.beginPath();
@@ -1204,7 +1602,6 @@ function drawCanvasHUD() {
   ctx.strokeStyle = 'rgba(255,255,255,0.10)';
   ctx.stroke();
 
-  // L1 – titre
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = '900 ' + fontSize + 'px ' + HUD_TITLE_FONT;
@@ -1215,7 +1612,6 @@ function drawCanvasHUD() {
   ctx.fillStyle = '#eaf3ff';
   ctx.fillText(line1, cx, y1);
 
-  // L2 – score (police chiffres)
   ctx.font = '700 ' + fontSize + 'px ' + HUD_NUM_FONT;
   const y2 = y1 + lineGap;
   ctx.lineWidth = 4;
@@ -1227,14 +1623,14 @@ function drawCanvasHUD() {
   ctx.restore();
 }
 
-/* Alerte centrale HORS ZONE – ne couvre jamais le cercle; si cercle centré, position bas; compte à rebours */
+/* Alerte HORS ZONE – ne couvre jamais le cercle; si cercle centré, position bas; compte à rebours */
 function drawOutOfZoneAlert(){
   if (!gameState) return;
   const now = performance.now();
   if (now < gameState.graceUntil) return;
   if (isPlayerInZone()) return;
 
-  // Position cible du cercle jaune (zone de pied du joueur)
+  // Position cible du cercle jaune
   const idx = gameState.playerIdx;
   const zoneX = FORMATION[idx].x;
   const zoneY = FORMATION[idx].y + FOOT_OFFSET * SCALE_PNJ;
@@ -1260,13 +1656,10 @@ function drawOutOfZoneAlert(){
   // Si le popup recouvre le cercle, déplacer au-dessus/au-dessous selon la position du cercle
   if (circleIntersectsRect(zoneX, zoneY, R, rx, ry, boxW, boxH)) {
     if (zoneY < CANVAS_H/2){
-      // Mettre en bas
       ry = CANVAS_H - boxH - 20;
     } else {
-      // Mettre en haut
       ry = 20;
     }
-    // Recheck – si toujours collision, pousser juste en dehors du rayon
     if (circleIntersectsRect(zoneX, zoneY, R, rx, ry, boxW, boxH)){
       if (ry < CANVAS_H/2){
         ry = Math.max(20, zoneY - R - boxH - 12);
@@ -1333,7 +1726,6 @@ function drawOutOfZoneAlert(){
 }
 
 function circleIntersectsRect(cx, cy, r, rx, ry, rw, rh){
-  // Distance du centre du cercle au rectangle (avec clamp)
   const nearestX = clamp(cx, rx, rx + rw);
   const nearestY = clamp(cy, ry, ry + rh);
   const dx = cx - nearestX;
@@ -1444,7 +1836,7 @@ function drawWinOverlay() {
   grad.addColorStop(1, '#3f86dd');
   ctx.fillStyle = grad;
   ctx.fill();
-  ctx.strokeStyle = '#71b8ff';
+  ctx.strokeStyle = '#71b9ff';
   ctx.lineWidth = 2;
   ctx.stroke();
 
@@ -1646,11 +2038,9 @@ function drawAmelie(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.strokeStyle = "#5a1122"; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(-1.6,-12.8); ctx.lineTo(1.6,-12.8); ctx.stroke();
 
-  // Chapeau de sorcière pointu
-  // Large bord
+  // Chapeau
   ctx.fillStyle = "#1a1a1a";
   ctx.beginPath(); ctx.ellipse(0,-18.2,10.0,2.8,0,0,Math.PI*2); ctx.fill();
-  // Cône
   ctx.fillStyle = "#141414";
   ctx.beginPath();
   ctx.moveTo(-6.2, -18.2);
@@ -1658,11 +2048,8 @@ function drawAmelie(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.lineTo(6.2, -18.2);
   ctx.closePath();
   ctx.fill();
-  // Bande colorée
   ctx.fillStyle = "#6b3fa0";
   ctx.fillRect(-4.4, -21.2, 8.8, 1.6);
-
-  // Pas de trompette pour Amélie
 }
 
 /* Candice (poupée) */
@@ -1727,23 +2114,30 @@ function drawCandice(ctx,isPlayer,footDYLeft,footDYRight,seed){
   // Liseré central clair
   ctx.fillStyle = "rgba(255,255,255,0.85)";
   ctx.fillRect(-1.0,-5.5,2.0,10);
-
-  // Pas de trompette pour Candice
 }
 
-/* Aperçus */
+/* Aperçus – canvases DPR aware (net) */
 function drawCharacterPreviews(){
   const cvs = document.querySelectorAll('.char-canvas');
   for (let i=0;i<cvs.length;i++){
     const cv = cvs[i];
+    const dpr = Math.max(1, window.devicePixelRatio||1);
+    const rect = cv.getBoundingClientRect();
+    if (rect.width && rect.height){
+      cv.style.width = rect.width + 'px';
+      cv.style.height = rect.height + 'px';
+      cv.width = Math.round(rect.width * dpr);
+      cv.height = Math.round(rect.height * dpr);
+    }
     const c=cv.getContext('2d');
-    c.clearRect(0,0,cv.width,cv.height);
+    c.setTransform(1,0,0,1,0,0); c.scale(dpr,dpr);
+    c.clearRect(0,0,cv.clientWidth,cv.clientHeight);
 
     const pat = makeGrassPattern(c);
-    c.save(); c.fillStyle = pat; c.fillRect(0,0,cv.width,cv.height); c.restore();
+    c.save(); c.fillStyle = pat; c.fillRect(0,0,cv.clientWidth,cv.clientHeight); c.restore();
 
     c.save();
-    c.translate(cv.width/2, cv.height/2);
+    c.translate(cv.clientWidth/2, cv.clientHeight/2);
     c.scale(1.25,1.25);
     const parent = cv.parentElement;
     const who = cv.dataset.char || (parent ? parent.getAttribute('data-char') : null) || 'john';
@@ -1780,18 +2174,88 @@ function completeLevel(){
 }
 
 function endGame(){
+  // Sauvegarde score (défaite)
+  persistEndOfGameScore(false);
+
   gameState.running = false;
   gameState.loseActive = true;
-  // Message de défaite aléatoire
   const choices = ["Terrine!", "10 Jours d'arrêt!", "Réformé!"];
   gameState.loseMsg = choices[Math.floor(Math.random()*choices.length)];
   try { if (musicAudio) musicAudio.pause(); } catch(_){}
 }
 
 function winGame(){
+  // Sauvegarde score (victoire)
+  persistEndOfGameScore(true);
+
   gameState.running = false;
   gameState.winActive = true;
   try { if (musicAudio) musicAudio.pause(); } catch(_){}
+}
+
+function persistEndOfGameScore(didWin){
+  if (!gameState) return;
+  const score = Math.floor((gameState.scoreTicks || 0) / 100);
+  const now = new Date();
+  const entry = {
+    name: (selectedCharacter || 'JPM').slice(0,8).toUpperCase(),
+    score,
+    dateISO: now.toISOString(),
+    level: gameState.level || 0,
+    win: !!didWin
+  };
+  saveHighScoreLocally(entry);
+  trySaveScoreToRepo(entry);
+}
+
+/* Envoi dans le repo via GitHub API (optionnel) */
+async function trySaveScoreToRepo(entry){
+  const { repo, token, branch } = getRepoConfig();
+  if (!repo || !token) return;
+  const safeTs = (entry.dateISO || new Date().toISOString()).replace(/[:.]/g,'-');
+  const path = `saves/save-${safeTs}.json`;
+  const bodyObj = {
+    type: "jpm-save",
+    created_at: entry.dateISO,
+    character: entry.name,
+    score: entry.score,
+    level: entry.level,
+    win: entry.win
+  };
+  const content = b64(JSON.stringify(bodyObj, null, 2));
+  const api = `https://api.github.com/repos/${repo}/contents/${encodeURIComponent(path)}`;
+  const payload = {
+    message: `Save score ${entry.score} at ${entry.dateISO}`,
+    content,
+    branch
+  };
+  try {
+    const res = await fetch(api, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok && res.status === 409){
+      const altPath = `saves/save-${safeTs}-${Math.random().toString(36).slice(2,6)}.json`;
+      const res2 = await fetch(`https://api.github.com/repos/${repo}/contents/${encodeURIComponent(altPath)}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github+json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ ...payload, message: `Save (alt) score ${entry.score} at ${entry.dateISO}` })
+      });
+      // ignore errors
+    }
+  } catch(_){}
+}
+function b64(str){
+  try { return btoa(unescape(encodeURIComponent(str))); } catch(_){ return btoa(str); }
 }
 
 function backToMenu(){
