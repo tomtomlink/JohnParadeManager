@@ -32,7 +32,10 @@
 
         <div class="hero-actions">
           <button id="play-btn" class="btn primary">Jouer</button>
-          <button id="select-btn" class="btn ghost">Sélection du musicien</button>
+          <button id="select-btn" class="btn ghost">
+            <canvas class="char-btn-logo" width="28" height="28" aria-hidden="true"></canvas>
+            <span id="select-label">Sélection du musicien</span>
+          </button>
         </div>
       </section>
 
@@ -41,7 +44,7 @@
         <div class="modal-card">
           <div class="modal-header">
             <h2>Choisis ton musicien</h2>
-            <button id="close-select" class="icon-btn" aria-label="Fermer">✕</button>
+            <button id="close-select" class="icon-btn btn ghost" aria-label="Fermer">✕</button>
           </div>
           <div class="characters">
             <button class="char-card" data-char="john" aria-label="John Parade">
@@ -62,6 +65,22 @@
 
       <!-- Conteneur du jeu -->
       <section id="game-container" style="display:none">
-        <!-- HUD HTML masqué par CSS; HUD dessiné dans le canvas -->
         <div class="hud" aria-hidden="true">
-          <div id="timer" class="hud-item"></
+          <div id="timer" class="hud-item"></div>
+          <div id="score" class="hud-item"></div>
+        </div>
+        <canvas id="game-canvas" width="360" height="640" style="background:#2a5f3a;border-radius:14px;"></canvas>
+      </section>
+
+      <!-- Ancien overlay HTML (désactivé par CSS, overlay dessiné dans le canvas) -->
+      <div id="game-overlay" class="overlay" style="display:none" aria-hidden="true">
+        <div class="overlay-card">
+          <p id="overlay-message"></p>
+          <button id="overlay-button" class="btn primary">Recommencer</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="./game.js"></script>
+  </body>
+</html>
