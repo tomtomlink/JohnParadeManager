@@ -1,0 +1,186 @@
+:root{
+  --bg: #0b1f14;
+  --card: #101e16;
+  --accent: #ffcc00;
+  --text: #f5f7f9;
+  --muted: #b8c3cc;
+
+  --btn-border: #2fe38a;
+  --btn-fill-1: #2fe38a;
+  --btn-fill-2: #1ab56b;
+  --btn-glow: rgba(47, 227, 138, 0.35);
+
+  --btn2-border: #71b8ff;
+  --btn2-fill-1: #71b8ff;
+  --btn2-fill-2: #3f86dd;
+  --btn2-glow: rgba(64, 150, 255, 0.35);
+
+  --shadow: 0 10px 24px rgba(0,0,0,0.35);
+  --hud-red: #ff2d2d;
+}
+
+*{box-sizing:border-box}
+html,body,#app{height:100%}
+body{
+  margin:0;
+  color: var(--text);
+  font-family: "Poppins", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  letter-spacing:.2px;
+}
+
+/* Pelouse texturée en arrière-plan (accueil) */
+#app{ position: relative; }
+#app::before{
+  content:"";
+  position: fixed;
+  inset: 0;
+  z-index:-1;
+  background-image:
+    radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px),
+    radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.06) 0 1px, transparent 1px 14px),
+    linear-gradient(180deg, #2d8f56, #1f5c38);
+  background-size: 6px 6px, 8px 8px, 100% 14px, 100% 100%;
+  background-position: 0 0, 3px 3px, 0 0, 0 0;
+  filter: saturate(0.95) contrast(1.02);
+}
+
+/* Menu principal centré */
+#main-menu{
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 40;
+  width:min(520px,92vw);
+  padding:28px 24px 22px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.03));
+  border:1px solid rgba(255,255,255,0.10);
+  border-radius:16px;
+  box-shadow: 0 18px 40px rgba(0,0,0,0.45);
+  display:grid; gap:14px; place-items:center; text-align:center;
+  backdrop-filter: blur(4px);
+}
+.brand{font-size:clamp(26px,4.5vw,42px); margin:6px 0 4px; font-weight:800; letter-spacing:.6px}
+.tagline{margin:0 0 16px; color:var(--muted); font-weight:500}
+.hero-actions{display:flex; gap:14px; flex-wrap:wrap; justify-content:center}
+
+/* Boutons modernes */
+.btn{
+  position: relative;
+  appearance:none;
+  border: 0;
+  color: #0b1f14;
+  padding: 12px 18px;
+  border-radius:14px;
+  font-weight:800;
+  font-size: 15px;
+  cursor:pointer;
+  transition: transform .08s ease, box-shadow .2s ease, filter .2s ease;
+  letter-spacing: .2px;
+  will-change: transform, box-shadow, filter;
+}
+.btn:active{ transform: translateY(1px) scale(0.99); }
+.btn.primary{
+  background: linear-gradient(180deg, var(--btn-fill-1), var(--btn-fill-2));
+  color: #0b2a19;
+  box-shadow: 0 10px 24px var(--btn-glow), inset 0 1px 0 rgba(255,255,255,0.35);
+  border: 1px solid var(--btn-border);
+}
+.btn.primary:hover{
+  filter: brightness(1.05);
+  box-shadow: 0 14px 28px var(--btn-glow), inset 0 1px 0 rgba(255,255,255,0.4);
+}
+.btn.ghost{
+  background: linear-gradient(180deg, var(--btn2-fill-1), var(--btn2-fill-2));
+  color: #081728;
+  box-shadow: 0 10px 24px var(--btn2-glow), inset 0 1px 0 rgba(255,255,255,0.35);
+  border: 1px solid var(--btn2-border);
+}
+.btn.ghost:hover{
+  filter: brightness(1.05);
+  box-shadow: 0 14px 28px var(--btn2-glow), inset 0 1px 0 rgba(255,255,255,0.4);
+}
+
+/* Conteneur jeu */
+#game-container{
+  position:absolute; inset:0; display:none;
+  align-items:center; justify-content:center;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+#game-canvas{
+  width:min(420px,100vw); height:100vh; max-height:100vh;
+  border-radius:14px;
+  box-shadow: 0 18px 40px rgba(0,0,0,0.45);
+  background:#2a5f3a;
+  touch-action: none;
+}
+
+/* HUD HTML masqué (HUD dessiné dans le canvas) */
+.hud{ display:none !important; }
+
+/* Bandeau progression niveaux */
+#level-banner{
+  position:fixed; top:calc(env(safe-area-inset-top) + 14px); left:50%; transform:translateX(-50%);
+  background: rgba(255, 225, 100, 0.95);
+  color:#2b2b2b; font-weight:700; padding:8px 14px; border-radius:12px;
+  border:1px solid rgba(0,0,0,0.12); box-shadow:0 8px 18px rgba(0,0,0,0.25);
+  opacity:0; pointer-events:none; transition:opacity .25s ease; z-index:20;
+}
+#level-banner.show{opacity:1}
+
+/* Modale sélection musiciens */
+.modal{position:fixed; inset:0; display:none; background:rgba(0,0,0,0.5); z-index:25; align-items:center; justify-content:center}
+.modal[aria-hidden="false"]{display:flex}
+.modal-card{
+  width:min(560px,94vw);
+  background: rgba(15,27,19,0.92);
+  border:1px solid rgba(255,255,255,0.08);
+  border-radius:16px; padding:16px; box-shadow:var(--shadow);
+  backdrop-filter: blur(6px);
+}
+.modal-header{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px}
+.characters{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px}
+
+/* Vignettes avec pelouse */
+.char-card{
+  position: relative;
+  border-radius: 14px;
+  padding: 10px;
+  display:grid; place-items:center; gap:6px; cursor:pointer;
+  color:var(--text); font-weight:700;
+  transition: transform .08s ease, box-shadow .2s ease, filter .2s ease;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 10px 20px rgba(0,0,0,0.35);
+}
+.char-card::before{
+  content:"";
+  position:absolute; inset:0; z-index:0;
+  background-image:
+    radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px),
+    radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.06) 0 1px, transparent 1px 12px),
+    linear-gradient(180deg, #2d8f56, #1f5c38);
+  background-size: 6px 6px, 8px 8px, 100% 12px, 100% 100%;
+  background-position: 0 0, 3px 3px, 0 0, 0 0;
+  filter: saturate(0.95) contrast(1.02);
+}
+.char-card:hover{ transform: translateY(-2px); filter: brightness(1.03); }
+.char-card:active{ transform: translateY(0); }
+.char-name{font-size:14px; position: relative; z-index:1}
+.char-canvas{
+  position: relative;
+  z-index:1;
+  width:120px; height:120px;
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 6px 14px rgba(0,0,0,0.25);
+  background: transparent;
+}
+
+/* Ancien overlay HTML non utilisé */
+.overlay{ display:none !important; }
+
+@media (max-width:480px){
+  .characters{grid-template-columns:repeat(3,1fr)}
+}
