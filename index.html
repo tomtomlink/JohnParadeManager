@@ -5,11 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
     <title>John Parade Manager</title>
 
-    <!-- Police moderne -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
 
-    <!-- Styles critiques minimes (fallback si la CSS tarde) -->
     <style>
       html,body,#app{height:100%}
       body{margin:0;font-family:Poppins,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0b1f14;color:#f5f7f9}
@@ -22,10 +20,8 @@
   </head>
   <body>
     <div id="app">
-      <!-- Bandeau message d'enchaînement de niveaux -->
       <div id="level-banner" aria-live="polite"></div>
 
-      <!-- Menu principal -->
       <section id="main-menu">
         <h1 class="brand">John Parade Manager</h1>
         <p class="tagline">Coordonne ta parade, garde la cohésion.</p>
@@ -39,7 +35,6 @@
         </div>
       </section>
 
-      <!-- Modale de sélection du musicien -->
       <div id="select-modal" class="modal" aria-hidden="true" style="display:none">
         <div class="modal-card">
           <div class="modal-header">
@@ -63,7 +58,6 @@
         </div>
       </div>
 
-      <!-- Conteneur du jeu -->
       <section id="game-container" style="display:none">
         <div class="hud" aria-hidden="true">
           <div id="timer" class="hud-item"></div>
@@ -72,7 +66,6 @@
         <canvas id="game-canvas" width="360" height="640" style="background:#2a5f3a;border-radius:14px;"></canvas>
       </section>
 
-      <!-- Ancien overlay HTML (désactivé par CSS, overlay dessiné dans le canvas) -->
       <div id="game-overlay" class="overlay" style="display:none" aria-hidden="true">
         <div class="overlay-card">
           <p id="overlay-message"></p>
