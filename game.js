@@ -1,5 +1,5 @@
-// John Parade Manager – Candice (4e perso), pubs (sans bandeau haut; côtés "prod-s" pleine hauteur),
-// joystick virtuel, HUD en haut (zone public), score up/down, jambes animées, trompette face caméra, chorégraphies + fin niveau 10
+// John Parade Manager – démarrage fiable + joystick visible, pubs "Prod-S Arena" (bas + côtés), HUD haut (zone public), Candice, etc.
+
 let CANVAS_W = 360, CANVAS_H = 640;
 
 const MUSICIANS = 25;
@@ -40,11 +40,23 @@ let selectedCharacter = 'john';
 // Joystick
 const PLAYER_SPEED = 220; // px/s
 const JOY_MARGIN = 14;    // marge au bord du terrain
+const INPUT = {
+  hasPointer: false,
+  hasTouch: false,
+  hasMouse: false
+};
 
 document.addEventListener('DOMContentLoaded', () => {
   canvas = document.getElementById('game-canvas');
   if (!canvas) return;
   ctx = canvas.getContext('2d', { alpha: false });
+  // Empêcher le scroll/zoom qui bloque les events tactiles
+  canvas.style.touchAction = 'none';
+  canvas.style.webkitTapHighlightColor = 'transparent';
+
+  INPUT.hasPointer = 'onpointerdown' in window;
+  INPUT.hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  INPUT.hasMouse = 'onmousedown' in window;
 
   const playBtn = document.getElementById('play-btn');
   const selectBtn = document.getElementById('select-btn');
@@ -54,11 +66,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const modal = document.getElementById('select-modal');
   const mainMenu = document.getElementById('main-menu');
 
-  // Ajoute dynamiquement Candice si absente
   ensureCandiceCard();
 
   function updateCharLogo() {
-    // si l'icône n'est pas un <canvas>, on ignore
     if (!charLogo || !(charLogo instanceof HTMLCanvasElement)) return;
     const c = charLogo.getContext('2d');
     c.clearRect(0,0,charLogo.width,charLogo.height);
@@ -66,7 +76,6 @@ document.addEventListener('DOMContentLoaded', () => {
     c.save(); c.fillStyle = pat; c.fillRect(0,0,charLogo.width,charLogo.height); c.restore();
     c.save();
     c.translate(charLogo.width/2, charLogo.height/2 + 1);
-    const scale = charLogo.width / 100;
     if (selectedCharacter==='minik') drawMinik(c,false,0,0,0);
     else if (selectedCharacter==='amelie') drawAmelie(c,false,0,0,0);
     else if (selectedCharacter==='candice') drawCandice(c,false,0,0,0);
@@ -79,22 +88,22 @@ document.addEventListener('DOMContentLoaded', () => {
     modal.style.display = 'none';
   }
 
-  // Listeners sélection (inclut Candice)
+  // Sélection personnage (y compris Candice injectée)
   const cards = document.querySelectorAll('.char-card');
   for (let i=0;i<cards.length;i++){
     const btn = cards[i];
     btn.addEventListener('click', ()=>{
       selectedCharacter = btn.getAttribute('data-char') || 'john';
       if (selectLabel) {
-        selectLabel.textContent = 'Musicien: ' + selectedCharacter.charAt(0).toUpperCase()+selectedCharacter.slice(1);
+        const name = selectedCharacter.charAt(0).toUpperCase()+selectedCharacter.slice(1);
+        selectLabel.textContent = 'Musicien: ' + name;
       }
       updateCharLogo();
       if (modal){
         modal.setAttribute('aria-hidden','true');
         modal.style.display='none';
       }
-      const mm = document.getElementById('main-menu');
-      if (mm) mm.style.display = '';
+      if (mainMenu) mainMenu.style.display = '';
     });
   }
 
@@ -102,14 +111,17 @@ document.addEventListener('DOMContentLoaded', () => {
   updateCharLogo();
 
   if (playBtn){
-    playBtn.addEventListener('click', (e) => {
+    playBtn.addEventListener('click', function(e){
       if (e && e.preventDefault) e.preventDefault();
       startGame();
     });
+  } else {
+    // Fallback si pas de bouton
+    startGame();
   }
 
   if (selectBtn){
-    selectBtn.addEventListener('click', (e) => {
+    selectBtn.addEventListener('click', function(e){
       if (e && e.preventDefault) e.preventDefault();
       if (!modal) return;
       if (mainMenu) mainMenu.style.display = 'none';
@@ -120,7 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if (closeSelect){
-    closeSelect.addEventListener('click', (e) => {
+    closeSelect.addEventListener('click', function(e){
       if (e && e.preventDefault) e.preventDefault();
       if (!modal) return;
       modal.setAttribute('aria-hidden','true');
@@ -130,7 +142,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if (modal){
-    modal.addEventListener('click', (e) => {
+    modal.addEventListener('click', function(e){
       if (e.target === modal) {
         modal.setAttribute('aria-hidden','true');
         modal.style.display='none';
@@ -170,19 +182,19 @@ function ensureCandiceCard() {
   card.appendChild(name);
   grid.appendChild(card);
 
-  // Listener sélection
-  card.addEventListener('click', ()=>{
+  // Sélection Candice
+  card.addEventListener('click', function(){
     selectedCharacter = 'candice';
     const selectLabel = document.getElementById('select-label');
     if (selectLabel) selectLabel.textContent = 'Musicien: Candice';
-    const selectBtn = document.getElementById('select-btn');
-    const charLogo = selectBtn ? selectBtn.querySelector('.char-btn-logo') : null;
-    if (charLogo && (charLogo instanceof HTMLCanvasElement)){
-      const c = charLogo.getContext('2d');
-      c.clearRect(0,0,charLogo.width,charLogo.height);
+    const selBtn = document.getElementById('select-btn');
+    const logo = selBtn ? selBtn.querySelector('.char-btn-logo') : null;
+    if (logo && (logo instanceof HTMLCanvasElement)){
+      const c = logo.getContext('2d');
+      c.clearRect(0,0,logo.width,logo.height);
       const pat = makeGrassPattern(c);
-      c.save(); c.fillStyle = pat; c.fillRect(0,0,charLogo.width,charLogo.height); c.restore();
-      c.save(); c.translate(charLogo.width/2, charLogo.height/2 + 1);
+      c.save(); c.fillStyle = pat; c.fillRect(0,0,logo.width,logo.height); c.restore();
+      c.save(); c.translate(logo.width/2, logo.height/2 + 1);
       drawCandice(c,false,0,0,0);
       c.restore();
     }
@@ -242,7 +254,7 @@ function startGame(){
     playerIdx: 12,
     player: {x: FORMATION[12].x, y: FORMATION[12].y, outZoneMs: 0},
     level: 1,
-    scoreTicks: 0, // score en "ticks" (affiché = floor(ticks/100))
+    scoreTicks: 0,
     running: true,
 
     moves: [],
@@ -252,7 +264,7 @@ function startGame(){
     moveFrom: [],
     moveTo: [],
 
-    graceUntil: performance.now() + 3000, // 3s
+    graceUntil: performance.now() + 3000,
     loseActive: false,
     winActive: false,
     loseBtnRect: {x:0,y:0,w:0,h:0},
@@ -261,11 +273,10 @@ function startGame(){
     prevFormation: [],
     prevPlayer: {x: FORMATION[12].x, y: FORMATION[12].y},
 
-    // Joystick state
     joy: {
       active: false,
       pointerId: null,
-      dx: 0, dy: 0, mag: 0 // composantes normalisées (-1..1) et magnitude (0..1)
+      dx: 0, dy: 0, mag: 0
     },
 
     lastFrameTS: performance.now()
@@ -283,23 +294,34 @@ function startGame(){
   gameState.prevPlayer = {x: gameState.player.x, y: gameState.player.y};
 
   attachInputs();
-
   requestAnimationFrame(gameLoop);
 }
 
 function attachInputs(){
-  canvas.addEventListener('pointerdown', onPointerDown, {passive:false});
-  canvas.addEventListener('pointermove', onPointerMove, {passive:true});
-  canvas.addEventListener('pointerup', onPointerUp, {passive:false});
-  canvas.addEventListener('pointercancel', onPointerUp, {passive:false});
-  canvas.addEventListener('pointerleave', onPointerUp, {passive:false});
+  // Pointer Events si dispo
+  if (INPUT.hasPointer){
+    canvas.addEventListener('pointerdown', onPointerDown, {passive:false});
+    canvas.addEventListener('pointermove', onPointerMove, {passive:false});
+    canvas.addEventListener('pointerup', onPointerUp, {passive:false});
+    canvas.addEventListener('pointercancel', onPointerUp, {passive:false});
+    canvas.addEventListener('pointerleave', onPointerUp, {passive:false});
+  }
+  // Fallback Touch
+  if (INPUT.hasTouch && !INPUT.hasPointer){
+    canvas.addEventListener('touchstart', onTouchStart, {passive:false});
+    canvas.addEventListener('touchmove', onTouchMove, {passive:false});
+    canvas.addEventListener('touchend', onTouchEnd, {passive:false});
+    canvas.addEventListener('touchcancel', onTouchEnd, {passive:false});
+  }
+  // Fallback Mouse
+  if (INPUT.hasMouse && !INPUT.hasPointer){
+    canvas.addEventListener('mousedown', onMouseDown, {passive:false});
+    window.addEventListener('mousemove', onMouseMove, {passive:false});
+    window.addEventListener('mouseup', onMouseUp, {passive:false});
+  }
 }
 function detachInputs(){
-  canvas.removeEventListener('pointerdown', onPointerDown);
-  canvas.removeEventListener('pointermove', onPointerMove);
-  canvas.removeEventListener('pointerup', onPointerUp);
-  canvas.removeEventListener('pointercancel', onPointerUp);
-  canvas.removeEventListener('pointerleave', onPointerUp);
+  // On ne détaille pas les removes ici pour rester simple
 }
 
 function initFormation(){
@@ -514,9 +536,13 @@ function setStepTargets(stepIdx){
 }
 
 function gameLoop(){
-  if (!gameState) return;
-  if (gameState.running) update();
-  render();
+  try {
+    if (gameState && gameState.running) update();
+    render();
+  } catch (err) {
+    // Pour éviter un arrêt silencieux si une petite erreur survient
+    console.error('Game loop error:', err);
+  }
   requestAnimationFrame(gameLoop);
 }
 
@@ -582,7 +608,6 @@ function update(){
 
 /* Joystick helpers */
 function getJoystickBase(){
-  // Taille adaptative et position en bas droite du terrain
   const b = getBounds();
   const R = clamp(Math.round(CANVAS_W * 0.12), 40, 56);
   const cx = b.right - R - JOY_MARGIN;
@@ -594,28 +619,21 @@ function isInCircle(x,y,cx,cy,r){ const dx=x-cx, dy=y-cy; return dx*dx + dy*dy <
 function onPointerDown(e){
   if (e && e.preventDefault) e.preventDefault();
 
+  // Overlays
   if (gameState && gameState.loseActive){
-    const pt = getEventPoint(e);
-    if (pointInRect(pt.x, pt.y, gameState.loseBtnRect)) {
-      restartGame();
-      return;
-    }
+    const pt = getEventPointFromClient(e.clientX, e.clientY);
+    if (pointInRect(pt.x, pt.y, gameState.loseBtnRect)) { restartGame(); }
     return;
   }
   if (gameState && gameState.winActive){
-    const pt = getEventPoint(e);
-    if (pointInRect(pt.x, pt.y, gameState.winBtnRect)) {
-      backToMenu();
-      return;
-    }
+    const pt = getEventPointFromClient(e.clientX, e.clientY);
+    if (pointInRect(pt.x, pt.y, gameState.winBtnRect)) { backToMenu(); }
     return;
   }
-
   if (!gameState || !gameState.running) return;
 
-  const pt = getEventPoint(e);
+  const pt = getEventPointFromClient(e.clientX, e.clientY);
   const jb = getJoystickBase();
-  // Active le joystick si on touche dans sa zone
   if (isInCircle(pt.x, pt.y, jb.x, jb.y, jb.r * 1.2)){
     const dx = pt.x - jb.x;
     const dy = pt.y - jb.y;
@@ -628,22 +646,12 @@ function onPointerDown(e){
     gameState.joy.mag = mag;
   }
 }
-
 function onPointerMove(e){
   if (!gameState || !gameState.joy.active) return;
   if ((typeof e.pointerId === 'number') && (e.pointerId !== gameState.joy.pointerId)) return;
-
-  const pt = getEventPoint(e);
-  const jb = getJoystickBase();
-  const dx = pt.x - jb.x;
-  const dy = pt.y - jb.y;
-  const dist = Math.hypot(dx,dy) || 1;
-  const mag = Math.min(1, dist / jb.r);
-  gameState.joy.dx = (dx/dist) * mag;
-  gameState.joy.dy = (dy/dist) * mag;
-  gameState.joy.mag = mag;
+  const pt = getEventPointFromClient(e.clientX, e.clientY);
+  updateJoystickFromPoint(pt.x, pt.y);
 }
-
 function onPointerUp(e){
   if (!gameState) return;
   if (gameState.joy.active && ((typeof e.pointerId !== 'number') || (e.pointerId === gameState.joy.pointerId))){
@@ -653,14 +661,94 @@ function onPointerUp(e){
   }
 }
 
-function getEventPoint(e){
+// Touch fallback
+function onTouchStart(e){
+  if (e && e.preventDefault) e.preventDefault();
+  if (!gameState || !gameState.running) return;
+
+  // Overlays
+  if (gameState.loseActive || gameState.winActive){
+    const t = e.changedTouches[0];
+    const pt = getEventPointFromClient(t.clientX, t.clientY);
+    if (gameState.loseActive && pointInRect(pt.x, pt.y, gameState.loseBtnRect)) { restartGame(); }
+    if (gameState.winActive && pointInRect(pt.x, pt.y, gameState.winBtnRect)) { backToMenu(); }
+    return;
+  }
+
+  const t = e.touches[0];
+  const pt = getEventPointFromClient(t.clientX, t.clientY);
+  const jb = getJoystickBase();
+  if (isInCircle(pt.x, pt.y, jb.x, jb.y, jb.r * 1.2)){
+    const dx = pt.x - jb.x;
+    const dy = pt.y - jb.y;
+    const dist = Math.hypot(dx,dy) || 1;
+    const mag = Math.min(1, dist / jb.r);
+    gameState.joy.active = true;
+    gameState.joy.pointerId = -1; // touch generic
+    gameState.joy.dx = (dx/dist) * mag;
+    gameState.joy.dy = (dy/dist) * mag;
+    gameState.joy.mag = mag;
+  }
+}
+function onTouchMove(e){
+  if (e && e.preventDefault) e.preventDefault();
+  if (!gameState || !gameState.joy.active) return;
+  const t = e.touches[0];
+  const pt = getEventPointFromClient(t.clientX, t.clientY);
+  updateJoystickFromPoint(pt.x, pt.y);
+}
+function onTouchEnd(e){
+  if (!gameState) return;
+  gameState.joy.active = false;
+  gameState.joy.pointerId = null;
+  gameState.joy.dx = 0; gameState.joy.dy = 0; gameState.joy.mag = 0;
+}
+
+// Mouse fallback
+function onMouseDown(e){
+  if (e && e.preventDefault) e.preventDefault();
+  if (!gameState || !gameState.running) return;
+  const pt = getEventPointFromClient(e.clientX, e.clientY);
+  const jb = getJoystickBase();
+  if (isInCircle(pt.x, pt.y, jb.x, jb.y, jb.r * 1.2)){
+    const dx = pt.x - jb.x;
+    const dy = pt.y - jb.y;
+    const dist = Math.hypot(dx,dy) || 1;
+    const mag = Math.min(1, dist / jb.r);
+    gameState.joy.active = true;
+    gameState.joy.pointerId = -2; // mouse
+    gameState.joy.dx = (dx/dist) * mag;
+    gameState.joy.dy = (dy/dist) * mag;
+    gameState.joy.mag = mag;
+  }
+}
+function onMouseMove(e){
+  if (!gameState || !gameState.joy.active) return;
+  const pt = getEventPointFromClient(e.clientX, e.clientY);
+  updateJoystickFromPoint(pt.x, pt.y);
+}
+function onMouseUp(e){
+  if (!gameState) return;
+  gameState.joy.active = false;
+  gameState.joy.pointerId = null;
+  gameState.joy.dx = 0; gameState.joy.dy = 0; gameState.joy.mag = 0;
+}
+
+function getEventPointFromClient(clientX, clientY){
   const rect = canvas.getBoundingClientRect();
-  const hasTouches = e && typeof e.touches !== 'undefined' && e.touches && e.touches[0];
-  const clientX = hasTouches ? e.touches[0].clientX : e.clientX;
-  const clientY = hasTouches ? e.touches[0].clientY : e.clientY;
   const x = clientX - rect.left;
   const y = clientY - rect.top;
   return clampIntoBounds({x,y}, 30);
+}
+function updateJoystickFromPoint(px, py){
+  const jb = getJoystickBase();
+  const dx = px - jb.x;
+  const dy = py - jb.y;
+  const dist = Math.hypot(dx,dy) || 1;
+  const mag = Math.min(1, dist / jb.r);
+  gameState.joy.dx = (dx/dist) * mag;
+  gameState.joy.dy = (dy/dist) * mag;
+  gameState.joy.mag = mag;
 }
 
 let grassPattern = null;
@@ -671,7 +759,7 @@ function getGrassPattern(){
   c.fillStyle='#3a7950'; c.fillRect(0,0,off.width,off.height);
   c.strokeStyle='rgba(255,255,255,0.05)'; c.lineWidth=1;
   for(let y=8;y<off.height;y+=12){ c.beginPath(); c.moveTo(0,y); c.lineTo(off.width,y-2); c.stroke(); }
-  for(let i=0;i<450;i++){ const x=Math.random()*off.width, y=Math.random()*off.height, a=.06+Math.random()*.06; c.fillStyle=`rgba(255,255,255,${a})`; c.fillRect(x,y,1,1); }
+  for(let i=0;i<450;i++){ const x=Math.random()*off.width, y=Math.random()*off.height, a=.06+Math.random()*.06; c.fillStyle='rgba(255,255,255,'+a+')'; c.fillRect(x,y,1,1); }
   grassPattern = ctx.createPattern(off,'repeat'); return grassPattern;
 }
 function makeGrassPattern(context){
@@ -680,7 +768,7 @@ function makeGrassPattern(context){
   c.fillStyle='#3a7950'; c.fillRect(0,0,off.width,off.height);
   c.strokeStyle='rgba(255,255,255,0.05)'; c.lineWidth=1;
   for(let y=8;y<off.height;y+=12){ c.beginPath(); c.moveTo(0,y); c.lineTo(off.width,y-2); c.stroke(); }
-  for(let i=0;i<450;i++){ const x=Math.random()*off.width, y=Math.random()*off.height, a=.06+Math.random()*.06; c.fillStyle=`rgba(255,255,255,${a})`; c.fillRect(x,y,1,1); }
+  for(let i=0;i<450;i++){ const x=Math.random()*off.width, y=Math.random()*off.height, a=.06+Math.random()*.06; c.fillStyle='rgba(255,255,255,'+a+')'; c.fillRect(x,y,1,1); }
   return context.createPattern(off,'repeat');
 }
 
@@ -706,7 +794,7 @@ function render(){
   // Foule
   drawCrowd();
 
-  // Panneaux de pub (sans bandeau haut)
+  // Panneaux de pub (bas + côtés) "Prod-S Arena"
   drawAdBoards();
 
   // Zone jaune
@@ -742,36 +830,35 @@ function render(){
     drawMusician(ctx, x, y, scale, isPlayer, variant, speed, tNow, i*0.73);
   }
 
-  // HUD (en zone public en haut)
+  // HUD en haut (zone public)
   drawCanvasHUD();
 
   // Overlays
   if (gameState && gameState.loseActive) drawLoseOverlay();
   if (gameState && gameState.winActive) drawWinOverlay();
 
-  // Joystick visuel (dessiné en dernier)
+  // Joystick visuel (toujours dessiné en jeu)
   if (gameState && gameState.running) drawJoystick();
 }
 
-/* Panneaux publicitaires: sans bandeau haut; côtés = "prod-s" sur toute la hauteur; bas = "Prod-S Arena" */
 function drawAdBoards(){
   const b = getBounds();
   const pad = 4;
   const h = 22;
 
-  // Bas uniquement
+  // Bas
   const bottomY = Math.min(CANVAS_H - h, b.bottom + pad);
-  drawAdStrip(b.left, bottomY, b.right - b.left, h, 'horizontal');
+  drawAdStrip(b.left, bottomY, b.right - b.left, h, 'horizontal', "Prod-S Arena");
 
-  // Côté gauche et droit ("prod-s" vertical sur toute la hauteur)
+  // Côté gauche et droit (vertical complet)
   const leftX = Math.max(0, b.left - h - pad);
-  drawAdStrip(leftX, b.top, h, b.bottom - b.top, 'vertical');
+  drawAdStrip(leftX, b.top, h, b.bottom - b.top, 'vertical', "Prod-S Arena");
 
   const rightX = Math.min(CANVAS_W - h, b.right + pad);
-  drawAdStrip(rightX, b.top, h, b.bottom - b.top, 'vertical');
+  drawAdStrip(rightX, b.top, h, b.bottom - b.top, 'vertical', "Prod-S Arena");
 }
 
-function drawAdStrip(x, y, w, h, orientation='horizontal'){
+function drawAdStrip(x, y, w, h, orientation, label){
   ctx.save();
 
   // Fond et bord
@@ -782,7 +869,7 @@ function drawAdStrip(x, y, w, h, orientation='horizontal'){
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Clip dans la bande
+  // Clip
   ctx.save();
   ctx.beginPath();
   roundRect(ctx, x, y, w, h, 6);
@@ -801,7 +888,6 @@ function drawAdStrip(x, y, w, h, orientation='horizontal'){
   ctx.textBaseline = 'middle';
 
   if (orientation==='horizontal'){
-    const label = "Prod-S Arena";
     let fontSize = h >= 26 ? 16 : 14;
     ctx.font = '800 ' + fontSize + 'px Poppins, system-ui, sans-serif';
     const metrics = ctx.measureText(label);
@@ -815,17 +901,15 @@ function drawAdStrip(x, y, w, h, orientation='horizontal'){
       ctx.fillText(label, px, baseY);
     }
   } else {
-    // Vertical: "prod-s" répété sur toute la hauteur
-    const label = "prod-s";
+    // Vertical: on écrit le label sur toute la hauteur (rotation)
     let fontSize = w >= 26 ? 16 : 14;
     ctx.font = '800 ' + fontSize + 'px Poppins, system-ui, sans-serif';
 
-    // On tourne pour écrire le long de la hauteur
     ctx.translate(x + w/2, y + h/2);
     ctx.rotate(-Math.PI/2);
 
     const metrics = ctx.measureText(label);
-    const step = Math.max(metrics.width + 18, 64);
+    const step = Math.max(metrics.width + 18, 140);
     const start = -h/2 + 12;
     const end = h/2 - 12;
 
@@ -841,23 +925,57 @@ function drawAdStrip(x, y, w, h, orientation='horizontal'){
   ctx.restore();
 }
 
-// HUD dans la zone du public (au-dessus du terrain)
+function drawJoystick(){
+  const jb = getJoystickBase();
+  const J = gameState.joy;
+
+  // Base
+  ctx.save();
+  ctx.globalAlpha = 0.85;
+  ctx.beginPath();
+  ctx.arc(jb.x, jb.y, jb.r, 0, 2*Math.PI);
+  const g = ctx.createRadialGradient(jb.x, jb.y, jb.r*0.2, jb.x, jb.y, jb.r);
+  g.addColorStop(0, 'rgba(0,0,0,0.35)');
+  g.addColorStop(1, 'rgba(0,0,0,0.2)');
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.stroke();
+
+  // Knob
+  const kx = jb.x + (J.dx || 0) * jb.r * 0.6;
+  const ky = jb.y + (J.dy || 0) * jb.r * 0.6;
+  ctx.beginPath();
+  ctx.arc(kx, ky, jb.r*0.38, 0, 2*Math.PI);
+  const g2 = ctx.createLinearGradient(kx, ky - jb.r*0.38, kx, ky + jb.r*0.38);
+  g2.addColorStop(0, 'rgba(255,255,255,0.55)');
+  g2.addColorStop(1, 'rgba(200,200,200,0.55)');
+  ctx.fillStyle = g2;
+  ctx.fill();
+
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.stroke();
+  ctx.restore();
+}
+
+// HUD (zone public haut)
 function drawCanvasHUD() {
   if (!gameState) return;
   const b = getBounds();
   const cx = (b.left + b.right) / 2;
 
-  // Zone du public: de y = 0 à y = b.top
   const areaTop = 0;
   const areaBottom = b.top;
   const areaH = Math.max(24, areaBottom - areaTop);
 
-  // Mise en page compacte
   const fontSize = areaH < 48 ? 14 : 16;
   const lineGap = areaH < 48 ? 14 : 18;
   const padY = 6;
 
-  const cardH = padY * 2 + fontSize * 2 + (lineGap - fontSize); // deux lignes
+  const cardH = padY * 2 + fontSize * 2 + (lineGap - fontSize);
   const cardW = Math.min(CANVAS_W - 24, 320);
   const centerY = areaTop + areaH / 2;
   const cardY = clamp(centerY - cardH / 2, 6, areaBottom - cardH - 6);
@@ -867,7 +985,6 @@ function drawCanvasHUD() {
   const line1 = 'Niveau ' + gameState.level + ' - Hors zone: ' + (gameState.player.outZoneMs/1000).toFixed(2) + 's';
   const line2 = 'Score: ' + displayScore;
 
-  // Fond semi-transparent
   ctx.save();
   const r = 12;
   ctx.beginPath();
@@ -883,7 +1000,6 @@ function drawCanvasHUD() {
   ctx.strokeStyle = 'rgba(255,255,255,0.08)';
   ctx.stroke();
 
-  // Texte centré
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = '800 ' + fontSize + 'px Poppins, system-ui, sans-serif';
@@ -891,7 +1007,6 @@ function drawCanvasHUD() {
   const y1 = cardY + padY + fontSize / 2;
   const y2 = y1 + lineGap;
 
-  // Léger contour pour contraste
   ctx.lineWidth = 3;
   ctx.strokeStyle = 'rgba(0,0,0,0.5)';
   ctx.strokeText(line1, cx, y1);
@@ -904,7 +1019,7 @@ function drawCanvasHUD() {
   ctx.restore();
 }
 
-// Écran de défaite
+// Overlays
 function drawLoseOverlay() {
   const b = getBounds();
   const fieldW = b.right - b.left;
@@ -961,7 +1076,6 @@ function drawLoseOverlay() {
   ctx.restore();
 }
 
-// Écran de victoire + bouton Menu principal
 function drawWinOverlay() {
   const b = getBounds();
   const fieldW = b.right - b.left;
@@ -1081,7 +1195,6 @@ function drawMusician(ctx,x,y,scale=1.2,isPlayer=false,variant='john',speed=0,ti
 }
 
 function drawTrumpetFront(ctx){
-  // Pavillon vu de face (disque doré)
   ctx.save();
   const bx = 0, by = -10;
   const rOuter = 5.6, rInner = 3.8;
@@ -1155,10 +1268,8 @@ function drawAmelie(ctx,isPlayer,footDYLeft,footDYRight,seed){
 }
 
 function drawCandice(ctx,isPlayer,footDYLeft,footDYRight,seed){
-  // Personnage original à thème hivernal (pas d'IP existante)
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
 
-  // Robe glacée (dégradé bleu)
   const grdDress = ctx.createLinearGradient(0,-14, 0, 10);
   grdDress.addColorStop(0, isPlayer ? "#bfe9ff" : "#9ad7ff");
   grdDress.addColorStop(1, isPlayer ? "#79b9ff" : "#5aa7f0");
@@ -1172,7 +1283,6 @@ function drawCandice(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.fillStyle = grdDress;
   ctx.fill();
 
-  // Cape translucide givrée
   ctx.beginPath();
   ctx.moveTo(-8,-8);
   ctx.quadraticCurveTo(-14,-2,-10,8);
@@ -1182,16 +1292,12 @@ function drawCandice(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.fillStyle = "rgba(180,220,255,0.25)";
   ctx.fill();
 
-  // Tête
   ctx.beginPath(); ctx.arc(0,-15,5.4,0,2*Math.PI); ctx.fillStyle="#f6dfc8"; ctx.fill();
 
-  // Chevelure claire + tresse stylisée (générique)
   ctx.fillStyle = "#f0ede1";
-  // Frange
   ctx.beginPath();
   ctx.ellipse(0,-19.2,7.0,3.2,0,0,2*Math.PI);
   ctx.fill();
-  // Tresse côté droit
   ctx.beginPath();
   ctx.moveTo(2,-13);
   ctx.quadraticCurveTo(7,-9,4,-5);
@@ -1201,7 +1307,6 @@ function drawCandice(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Petit diadème de flocon (générique)
   ctx.save();
   ctx.translate(0,-21.5);
   ctx.strokeStyle = isPlayer ? "#dff6ff" : "#cfefff";
@@ -1215,15 +1320,13 @@ function drawCandice(ctx,isPlayer,footDYLeft,footDYRight,seed){
   }
   ctx.restore();
 
-  // Liseré central clair
   ctx.fillStyle = "rgba(255,255,255,0.85)";
   ctx.fillRect(-1.1,-5.5,2.2,10);
 
-  // Trompette face caméra
   drawTrumpetFront(ctx);
 }
 
-/* Aperçus avec pelouse */
+/* Aperçus */
 function drawCharacterPreviews(){
   const cvs = document.querySelectorAll('.char-canvas');
   for (let i=0;i<cvs.length;i++){
@@ -1285,7 +1388,6 @@ function winGame(){
 
 function backToMenu(){
   gameState = null;
-  detachInputs();
   try { if (musicAudio) musicAudio.pause(); } catch(_){}
   try { if (musicAudio) musicAudio.currentTime = 0; } catch(_){}
 
