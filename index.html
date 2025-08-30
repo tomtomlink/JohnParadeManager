@@ -7,18 +7,17 @@
 
     <!-- Police moderne -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
 
-    <!-- Styles critiques pour éviter l'affichage cassé si styles.css ne se charge pas -->
+    <!-- Styles critiques minimes (fallback si la CSS tarde) -->
     <style>
-      html,body,#app{height:100%} body{margin:0;font-family:Poppins,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0b1f14;color:#f5f7f9}
-      /* cache par défaut sans CSS externe */
+      html,body,#app{height:100%}
+      body{margin:0;font-family:Poppins,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0b1f14;color:#f5f7f9}
       #game-container{display:none}
       #select-modal{display:none}
       .btn{cursor:pointer}
     </style>
 
-    <!-- Feuille complète -->
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -27,7 +26,7 @@
       <div id="level-banner" aria-live="polite"></div>
 
       <!-- Menu principal -->
-      <section id="main-menu" class="card">
+      <section id="main-menu">
         <h1 class="brand">John Parade Manager</h1>
         <p class="tagline">Coordonne ta parade, garde la cohésion.</p>
 
@@ -37,7 +36,7 @@
         </div>
       </section>
 
-      <!-- Panneau de sélection du musicien (caché par défaut via style) -->
+      <!-- Modale de sélection du musicien -->
       <div id="select-modal" class="modal" aria-hidden="true" style="display:none">
         <div class="modal-card">
           <div class="modal-header">
@@ -61,18 +60,18 @@
         </div>
       </div>
 
-      <!-- Conteneur du jeu (caché par défaut) -->
+      <!-- Conteneur du jeu -->
       <section id="game-container" style="display:none">
-        <div class="hud">
-          <div id="timer" class="hud-item">Niveau 1 - Temps hors zone: 0.00s</div>
-          <div id="score" class="hud-item">Score: 0</div>
+        <!-- HUD HTML masqué par CSS; HUD dessiné dans le canvas -->
+        <div class="hud" aria-hidden="true">
+          <div id="timer" class="hud-item"></div>
+          <div id="score" class="hud-item"></div>
         </div>
-        <!-- Fallback de fond pour éviter un grand bloc noir si le rendu n'a pas encore démarré -->
         <canvas id="game-canvas" width="360" height="640" style="background:#2a5f3a;border-radius:14px;"></canvas>
       </section>
 
-      <!-- Overlay fin de partie -->
-      <div id="game-overlay" class="overlay" style="display:none">
+      <!-- Ancien overlay HTML (désactivé par CSS, overlay dessiné dans le canvas) -->
+      <div id="game-overlay" class="overlay" style="display:none" aria-hidden="true">
         <div class="overlay-card">
           <p id="overlay-message"></p>
           <button id="overlay-button" class="btn primary">Recommencer</button>
