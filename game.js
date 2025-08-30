@@ -1,5 +1,5 @@
-// John Parade Manager – + Candice (4e perso), panneaux "Prod-S Arena", joystick virtuel, HUD en haut (zone public),
-// score up/down, jambes animées, trompette face caméra, chorégraphies + fin niveau 10
+// John Parade Manager – + Candice (4e perso), panneaux "Prod-S Arena" (sans bandeau haut, côtés = "prod-s" sur toute la hauteur),
+// joystick virtuel, HUD en haut (zone public), score up/down, jambes animées, trompette face caméra, chorégraphies + fin niveau 10
 
 let CANVAS_W = 360, CANVAS_H = 640;
 
@@ -685,7 +685,7 @@ function render(){
   // Foule
   drawCrowd();
 
-  // Panneaux de pub "Prod-S Arena"
+  // Panneaux de pub ("Prod-S Arena" bas, "prod-s" sur les côtés sur toute la hauteur)
   drawAdBoards();
 
   // Zone jaune
@@ -732,25 +732,20 @@ function render(){
   if (gameState && gameState.running) drawJoystick();
 }
 
-/* Panneaux publicitaires le long du terrain */
+/* Panneaux publicitaires: sans bandeau haut; côtés = "prod-s" sur toute la hauteur */
 function drawAdBoards(){
   const b = getBounds();
   const pad = 4;
   const h = 22;
 
-  // Top strip
-  const topY = Math.max(0, b.top - h - pad);
-  drawAdStrip(b.left, topY, b.right - b.left, h, 'horizontal');
-
-  // Bottom strip
+  // Bas uniquement (conserve "Prod-S Arena")
   const bottomY = Math.min(CANVAS_H - h, b.bottom + pad);
   drawAdStrip(b.left, bottomY, b.right - b.left, h, 'horizontal');
 
-  // Left strip (vertical)
+  // Côté gauche et droit ("prod-s" vertical sur toute la hauteur)
   const leftX = Math.max(0, b.left - h - pad);
   drawAdStrip(leftX, b.top, h, b.bottom - b.top, 'vertical');
 
-  // Right strip (vertical)
   const rightX = Math.min(CANVAS_W - h, b.right + pad);
   drawAdStrip(rightX, b.top, h, b.bottom - b.top, 'vertical');
 }
@@ -758,75 +753,70 @@ function drawAdBoards(){
 function drawAdStrip(x, y, w, h, orientation='horizontal'){
   ctx.save();
 
-  // Carte fond + bord
+  // Fond et bord
   roundRect(ctx, x, y, w, h, 6);
-  // Dégradé subtil
-  const grad = orientation==='horizontal'
-    ? ctx.createLinearGradient(x, y, x, y+h)
-    : ctx.createLinearGradient(x, y, x+w, y);
-  grad.addColorStop(0, "rgba(255,255,255,0.06)");
-  grad.addColorStop(1, "rgba(255,255,255,0.00)");
-
   ctx.fillStyle = colors.adBg;
   ctx.fill();
   ctx.strokeStyle = colors.adStroke;
   ctx.lineWidth = 2;
   ctx.stroke();
 
+  // Clip dans la bande
   ctx.save();
+  ctx.beginPath();
+  roundRect(ctx, x, y, w, h, 6);
   ctx.clip();
+
+  // Dégradé subtil
+  const grad = orientation==='horizontal'
+    ? ctx.createLinearGradient(x, y, x, y+h)
+    : ctx.createLinearGradient(x, y, x+w, y);
+  grad.addColorStop(0, "rgba(255,255,255,0.06)");
+  grad.addColorStop(1, "rgba(255,255,255,0.00)");
   ctx.fillStyle = grad;
   ctx.fillRect(x, y, w, h);
 
-  // Texte répété "Prod-S Arena"
-  const label = "Prod-S Arena";
   ctx.fillStyle = colors.adText;
   ctx.textBaseline = 'middle';
 
   if (orientation==='horizontal'){
-    let fontSize = 14;
-    if (h >= 26) fontSize = 16;
+    const label = "Prod-S Arena";
+    let fontSize = h >= 26 ? 16 : 14;
     ctx.font = `800 ${fontSize}px Poppins, system-ui, sans-serif`;
     const metrics = ctx.measureText(label);
     const step = Math.max(metrics.width + 32, 120);
     const baseY = y + h/2;
 
     for (let px = x + 12; px < x + w - 12; px += step){
-      // Ombre légère
       ctx.lineWidth = 3;
       ctx.strokeStyle = 'rgba(0,0,0,0.35)';
       ctx.strokeText(label, px, baseY);
-      // Texte
       ctx.fillText(label, px, baseY);
     }
   } else {
-    // Vertical: rotation 90° pour lire depuis l'intérieur du terrain
-    let fontSize = 14;
-    if (w >= 26) fontSize = 16;
+    // Vertical: "prod-s" répété sur toute la hauteur
+    const label = "prod-s";
+    let fontSize = w >= 26 ? 16 : 14;
     ctx.font = `800 ${fontSize}px Poppins, system-ui, sans-serif`;
-    const metrics = ctx.measureText(label);
-    const step = Math.max(metrics.width + 32, 120);
 
-    // Dessin en colonnes, pivot dans la bande
-    const cx = x + w/2;
-    ctx.translate(cx, y);
+    // On tourne pour écrire le long de la hauteur
+    ctx.translate(x + w/2, y + h/2);
     ctx.rotate(-Math.PI/2);
 
-    const totalLen = (bott=y + h, h); // not used, keep simple
+    const metrics = ctx.measureText(label);
+    const step = Math.max(metrics.width + 18, 64); // espacement régulier
     const start = -h/2 + 12;
     const end = h/2 - 12;
 
-    // Comme on a pivoté, on parcourt "horizontalement" le long de l'ancienne hauteur
-    const visibleLen = h - 24;
-    for (let py = -visibleLen/2; py < visibleLen/2; py += step){
+    for (let pos = start; pos <= end; pos += step){
       ctx.lineWidth = 3;
       ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-      ctx.strokeText(label, py, 0);
-      ctx.fillText(label, py, 0);
+      ctx.strokeText(label, pos, 0);
+      ctx.fillText(label, pos, 0);
     }
   }
 
-  ctx.restore();
+  ctx.restore(); // clip
   ctx.restore();
 }
 
@@ -866,10 +856,10 @@ function drawCanvasHUD() {
   ctx.arcTo(cardX, cardY + cardH, cardX, cardY, r);
   ctx.arcTo(cardX, cardY, cardX + cardW, cardY, r);
   ctx.closePath();
-  ctx.fillStyle = 'rgba(15,27,19,0.78)'; // fond sombre translucide
+  ctx.fillStyle = 'rgba(15,27,19,0.78)';
   ctx.fill();
   ctx.lineWidth = 2;
-  ctx.strokeStyle = 'rgba(255,255,255,0.08)'; // liseré subtil
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
   ctx.stroke();
 
   // Texte centré
