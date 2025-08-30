@@ -152,7 +152,16 @@ body{
   backdrop-filter: blur(6px);
 }
 .modal-header{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px}
-.characters{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px}
+
+/* Responsive grid: cartes centrées et non rognées sur mobile */
+.characters{
+  display:grid;
+  gap:12px;
+  /* Chaque carte a ~140px (120px de canvas + 2x10px padding + bordure) */
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  justify-content:center; /* centre les pistes quand il reste de l'espace */
+  justify-items:center;   /* centre chaque carte dans sa piste */
+}
 
 /* Vignettes avec pelouse */
 .char-card{
@@ -165,6 +174,8 @@ body{
   overflow: hidden;
   border: 1px solid rgba(255,255,255,0.08);
   box-shadow: 0 10px 20px rgba(0,0,0,0.35);
+  width: 100%;
+  max-width: 180px; /* évite l'étirement excessif sur petits écrans */
 }
 .char-card::before{
   content:"";
@@ -184,7 +195,7 @@ body{
 .char-canvas{
   position: relative;
   z-index:1;
-  width:120px; height:120px;
+  width:120px; height:120px; /* conserve la taille du visuel */
   border-radius: 10px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 6px 14px rgba(0,0,0,0.25);
   background: transparent;
@@ -193,6 +204,7 @@ body{
 /* Ancien overlay HTML non utilisé */
 .overlay{ display:none !important; }
 
-@media (max-width:480px){
-  .characters{grid-template-columns:repeat(3,1fr)}
+/* Ajustements mobiles */
+@media (max-width: 480px){
+  .modal-card{ padding:14px; }
 }
