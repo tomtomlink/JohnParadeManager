@@ -21,12 +21,13 @@ body{
   letter-spacing:.2px;
 }
 
-/* Menu principal bien centré */
-#main-menu.card{
+/* MENU PRINCIPAL parfaitement centré */
+#main-menu{
   position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
+  z-index: 40;
   width:min(520px,92vw);
   padding:28px 24px 22px;
   background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
@@ -35,10 +36,8 @@ body{
   box-shadow: var(--shadow);
   display:grid; gap:10px; place-items:center; text-align:center;
 }
-
 .brand{font-size:clamp(24px,4.5vw,40px); margin:8px 0 6px; font-weight:700; letter-spacing:.5px}
 .tagline{margin:0 0 16px; color:var(--muted); font-weight:400}
-
 .hero-actions{display:flex; gap:12px; flex-wrap:wrap; justify-content:center}
 
 .btn{
@@ -54,7 +53,7 @@ body{
 .btn.ghost{background:var(--ghost); border-color:rgba(255,255,255,0.18)}
 .icon-btn{background:transparent;border:none;color:var(--text);font-size:18px;cursor:pointer}
 
-/* Conteneur jeu pleine page, centre le canvas */
+/* CONTENEUR JEU pleine page, centre le canvas */
 #game-container{
   position:absolute; inset:0; display:none; /* visible via JS au lancement */
   align-items:center; justify-content:center;
@@ -69,13 +68,19 @@ body{
   touch-action: none; /* pas de scroll/zoom pendant le drag */
 }
 
-/* HUD rouge bold, dans la zone du public en haut, centré horizontalement */
+/* HUD ROUGE BOLD centré en BAS (dans la zone du public inférieure) */
 .hud{
   position:absolute;
-  top: calc(env(safe-area-inset-top) + 10px); /* au-dessus de la zone de jeu -> zone public */
+  bottom: calc(env(safe-area-inset-bottom) + 10px);
   left: 50%;
   transform: translateX(-50%);
-  display:flex; gap:10px; z-index:10; pointer-events:none; user-select:none;
+  display:flex;
+  gap:10px;
+  z-index:10;
+  pointer-events:none;
+  user-select:none;
+  justify-content:center;
+  align-items:center;
 }
 .hud-item{
   background: rgba(0,0,0,0.35);
@@ -85,10 +90,12 @@ body{
   font-weight: 800;
   font-size: 15px;
   letter-spacing: .3px;
-  padding:6px 12px; border-radius:10px;
+  padding:6px 12px;
+  border-radius:10px;
   box-shadow: 0 6px 14px rgba(0,0,0,0.25);
 }
 
+/* Bandeau d’info de niveau (inchangé) */
 #level-banner{
   position:fixed; top:calc(env(safe-area-inset-top) + 14px); left:50%; transform:translateX(-50%);
   background: rgba(255, 225, 100, 0.95);
@@ -98,9 +105,7 @@ body{
 }
 #level-banner.show{opacity:1}
 
-.overlay{position:fixed; inset:0; display:grid; place-items:center; background:rgba(0,0,0,0.45); z-index:30}
-.overlay-card{background:#0f1b13; border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:16px 18px; text-align:center; width:min(340px,92vw); box-shadow:var(--shadow)}
-
+/* Modale sélection musicien */
 .modal{position:fixed; inset:0; display:none; background:rgba(0,0,0,0.5); z-index:25; align-items:center; justify-content:center}
 .modal[aria-hidden="false"]{display:flex}
 .modal-card{width:min(560px,94vw); background:#0f1b13; border:1px solid rgba(255,255,255,0.07); border-radius:16px; padding:16px; box-shadow:var(--shadow)}
@@ -110,6 +115,10 @@ body{
 .char-card:hover{transform:translateY(-2px)}
 .char-card:active{transform:translateY(0)}
 .char-name{font-size:14px}
+
+/* Overlay fin de partie */
+.overlay{position:fixed; inset:0; display:grid; place-items:center; background:rgba(0,0,0,0.45); z-index:30}
+.overlay-card{background:#0f1b13; border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:16px 18px; text-align:center; width:min(340px,92vw); box-shadow:var(--shadow)}
 
 @media (max-width:480px){
   .characters{grid-template-columns:repeat(3,1fr)}
