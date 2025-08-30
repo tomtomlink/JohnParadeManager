@@ -1,6 +1,7 @@
-// John Parade Manager – no auto-move for player, 3s grace, centered menu/HUD (requires styles.css)
+// John Parade Manager – accueil pelouse + boutons modernes + sélection avec fond pelouse
+// HUD et écran de défaite dessinés dans le canvas (terrain), joueur uniquement au curseur avec 3s de grâce
 
-let CANVAS_W = 360, CANVAS_H = 640; // set on resize
+let CANVAS_W = 360, CANVAS_H = 640;
 
 const MUSICIANS = 25;
 const ROWS = 5, COLS = 5;
@@ -22,7 +23,7 @@ let PAD_BOTTOM = 32;
 const colors = {
   pelouse: ["#52b06d", "#2e944b", "#b1e2b3"],
   pelouseDark: "#3c8b55",
-  line: "#f6f6f6",
+  line: "rgba(255,255,255,0.8)",
   zone: "rgba(255,255,0,0.28)",
   crowd: ["#c57b57","#e0b089","#a06c49","#8aa4c8","#d7a1a7","#9b9b9b"],
   trumpetBrass: "#D4AF37",
@@ -41,13 +42,6 @@ function lerp(a,b,t){ return a + (b-a)*t; }
 function lerpPt(p,q,t){ return {x:lerp(p.x,q.x,t), y:lerp(p.y,q.y,t)}; }
 function easeInOutCubic(t){ return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2; }
 
-function showOverlay(message, buttonText="Recommencer"){
-  const overlay = document.getElementById('game-overlay');
-  document.getElementById('overlay-message').textContent = message;
-  document.getElementById('overlay-button').textContent = buttonText;
-  overlay.style.display = 'grid';
-  if (gameState) gameState.running = false;
-}
 function showBanner(text, ms=1400){
   const b = document.getElementById('level-banner');
   b.textContent = text;
@@ -64,13 +58,11 @@ window.onload = () => {
   const closeSelect = document.getElementById('close-select');
   const modal = document.getElementById('select-modal');
 
-  // Init selection modal (hidden by default)
   modal.setAttribute('aria-hidden','true');
   modal.style.display = 'none';
   drawCharacterPreviews();
 
   playBtn.onclick = startGame;
-  document.getElementById('overlay-button').onclick = () => location.reload();
 
   selectBtn.addEventListener('click', () => {
     modal.setAttribute('aria-hidden','false');
@@ -129,7 +121,6 @@ function startGame(){
     score: 0,
     running: true,
 
-    // timeline
     moves: [],
     currentMove: 0,
     moveStartTime: performance.now(),
@@ -137,7 +128,9 @@ function startGame(){
     moveFrom: [],
     moveTo: [],
 
-    graceUntil: performance.now() + 3000 // 3s de grâce pour se placer
+    graceUntil: performance.now() + 3000, // 3s
+    loseActive: false,
+    loseBtnRect: {x:0,y:0,w:0,h:0}
   };
 
   if (musicAudio && musicAudio.paused) { musicAudio.currentTime = 0; musicAudio.play().catch(()=>{}); }
@@ -287,18 +280,20 @@ function setStepTargets(stepIdx){
   const rawTargets = gameState.moveFrom.map((p,i)=>({x:p.x+deltas[i].dx, y:p.y+deltas[i].dy}));
   const adjusted = resolveTargets(gameState.moveFrom, rawTargets);
   gameState.moveTo = adjusted;
-  // IMPORTANT: on ne touche jamais à la position du joueur ici (pas de playerTo/playerFrom)
 }
 
-function gameLoop(){ if(!gameState || !gameState.running) return; update(); render(); requestAnimationFrame(gameLoop); }
+function gameLoop(){
+  if (!gameState) return;
+  if (gameState.running) update();
+  render();
+  requestAnimationFrame(gameLoop);
+}
 
 function update(){
   const now = performance.now();
   let elapsed = now - gameState.moveStartTime;
 
-  // Enchaînement fluide des steps
   while (elapsed >= gameState.moveDuration){
-    // finalise step (formation seulement)
     for (let i=0;i<FORMATION.length;i++){ FORMATION[i].x = gameState.moveTo[i].x; FORMATION[i].y = gameState.moveTo[i].y; }
 
     gameState.currentMove++;
@@ -315,17 +310,12 @@ function update(){
     elapsed = now - gameState.moveStartTime;
   }
 
-  // Interpolation du step courant (formation seulement)
   const t = clamp(elapsed / gameState.moveDuration, 0, 1);
   for (let i=0;i<FORMATION.length;i++){
     FORMATION[i].x = lerp(gameState.moveFrom[i].x, gameState.moveTo[i].x, t);
     FORMATION[i].y = lerp(gameState.moveFrom[i].y, gameState.moveTo[i].y, t);
   }
 
-  // PAS de déplacement automatique du joueur ici
-  // La position du joueur ne change que sur pointermove (drag)
-
-  // Timer "hors zone" avec 3s de grâce au démarrage
   const inGrace = now < gameState.graceUntil;
   if (!inGrace){
     if (!isPlayerInZone()){
@@ -338,15 +328,32 @@ function update(){
   }
 }
 
-// Input: le joueur suit exactement le curseur (pas de smoothing)
-function onPointerDown(e){ e.preventDefault?.(); isDragging = true; setPlayerFromEvent(e); }
+// Input: le joueur suit exactement le curseur
+function onPointerDown(e){
+  e.preventDefault?.();
+
+  if (gameState && gameState.loseActive){
+    const pt = getEventPoint(e);
+    if (pointInRect(pt.x, pt.y, gameState.loseBtnRect)) {
+      restartGame();
+      return;
+    }
+    return;
+  }
+  isDragging = true;
+  setPlayerFromEvent(e);
+}
 function onPointerMove(e){ if (!isDragging) return; setPlayerFromEvent(e); }
 function onPointerUp(e){ isDragging = false; }
-function setPlayerFromEvent(e){
+
+function getEventPoint(e){
   const rect = canvas.getBoundingClientRect();
   const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
   const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
-  const c = clampIntoBounds({x,y}, 30);
+  return clampIntoBounds({x,y}, 30);
+}
+function setPlayerFromEvent(e){
+  const c = getEventPoint(e);
   gameState.player.x = c.x;
   gameState.player.y = c.y;
 }
@@ -363,29 +370,41 @@ function getGrassPattern(){
   grassPattern = ctx.createPattern(off,'repeat'); return grassPattern;
 }
 
+/* Pattern pelouse pour les canvases d’aperçu */
+function makeGrassPattern(context){
+  const off = document.createElement('canvas'); off.width=96; off.height=96;
+  const c = off.getContext('2d');
+  c.fillStyle='#3a7950'; c.fillRect(0,0,off.width,off.height);
+  c.strokeStyle='rgba(255,255,255,0.05)'; c.lineWidth=1;
+  for(let y=8;y<off.height;y+=12){ c.beginPath(); c.moveTo(0,y); c.lineTo(off.width,y-2); c.stroke(); }
+  for(let i=0;i<450;i++){ const x=Math.random()*off.width, y=Math.random()*off.height, a=.06+Math.random()*.06; c.fillStyle=`rgba(255,255,255,${a})`; c.fillRect(x,y,1,1); }
+  return context.createPattern(off,'repeat');
+}
+
 function render(){
-  // Fond pelouse texturé
+  // Fond pelouse texturé (plein écran canvas)
   ctx.fillStyle = getGrassPattern();
   ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
 
   const b=getBounds();
-  // Zone public assombrie
+
+  // Zones “public” assombries autour du terrain
   ctx.fillStyle='rgba(0,0,0,0.18)';
   ctx.fillRect(0,0,CANVAS_W,b.top);
   ctx.fillRect(0,b.bottom,CANVAS_W,CANVAS_H-b.bottom);
   ctx.fillRect(0,b.top,b.left,b.bottom-b.top);
   ctx.fillRect(b.right,b.top,CANVAS_W-b.right,b.bottom-b.top);
 
-  // Lignes terrain
-  ctx.strokeStyle='rgba(255,255,255,0.8)';
+  // Lignes du terrain
+  ctx.strokeStyle=colors.line;
   ctx.lineWidth=2;
   ctx.strokeRect(b.left,b.top,b.right-b.left,b.bottom-b.top);
 
   // Foule
   drawCrowd();
 
-  // Zone jaune au niveau des pieds du slot joueur
-  const iSlot = gameState ? gameState.playerIdx : 12;
+  // Zone jaune (aux pieds du slot du joueur)
+  const iSlot = (gameState? gameState.playerIdx : 12);
   const zoneX = FORMATION[iSlot].x;
   const zoneY = FORMATION[iSlot].y + FOOT_OFFSET * SCALE_PNJ;
   ctx.beginPath(); ctx.arc(zoneX, zoneY, ZONE_RADIUS, 0, 2*Math.PI);
@@ -401,12 +420,112 @@ function render(){
     drawMusician(ctx, x, y, scale, isPlayer, variant);
   }
 
-  if (gameState){
-    document.getElementById('timer').textContent = `Niveau ${gameState.level} - Temps hors zone: ${(gameState.player.outZoneMs/1000).toFixed(2)}s`;
-    document.getElementById('score').textContent = `Score: ${gameState.score}`;
+  // HUD canvas (bas du terrain, centré)
+  drawCanvasHUD();
+
+  // Écran de défaite au centre du terrain
+  if (gameState && gameState.loseActive) {
+    drawLoseOverlay();
   }
 }
 
+// HUD dans le terrain (bas, centré, bold rouge)
+function drawCanvasHUD() {
+  if (!gameState) return;
+  const b = getBounds();
+  const cx = (b.left + b.right) / 2;
+
+  const y1 = b.bottom - 28;
+  const y2 = y1 + 18;
+
+  const line1 = `Niveau ${gameState.level} - Temps hors zone: ${(gameState.player.outZoneMs/1000).toFixed(2)}s`;
+  const line2 = `Score: ${gameState.score}`;
+
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '800 16px Poppins, system-ui, sans-serif';
+
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+  ctx.strokeText(line1, cx, y1);
+  ctx.strokeText(line2, cx, y2);
+
+  ctx.fillStyle = '#ff2d2d';
+  ctx.fillText(line1, cx, y1);
+  ctx.fillText(line2, cx, y2);
+  ctx.restore();
+}
+
+// Écran de défaite dans le canvas + bouton Recommencer
+function drawLoseOverlay() {
+  const b = getBounds();
+  const fieldW = b.right - b.left;
+  const fieldH = b.bottom - b.top;
+  const cx = (b.left + b.right) / 2;
+  const cy = (b.top + b.bottom) / 2;
+
+  const cardW = Math.min(320, fieldW * 0.8);
+  const cardH = 150;
+  const cardX = cx - cardW / 2;
+  const cardY = cy - cardH / 2;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(b.left, b.top, fieldW, fieldH);
+
+  roundRect(ctx, cardX, cardY, cardW, cardH, 14);
+  ctx.fillStyle = '#0f1b13';
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '800 18px Poppins, system-ui, sans-serif';
+  ctx.fillStyle = '#ff2d2d';
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+  ctx.lineWidth = 4;
+  const msg = "T'es une terrine!";
+  ctx.strokeText(msg, cx, cardY + 48);
+  ctx.fillText(msg, cx, cardY + 48);
+
+  const btnW = Math.min(200, cardW - 40);
+  const btnH = 40;
+  const btnX = cx - btnW/2;
+  const btnY = cardY + cardH - btnH - 16;
+
+  roundRect(ctx, btnX, btnY, btnW, btnH, 10);
+  const grad = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH);
+  grad.addColorStop(0, '#2fe38a');
+  grad.addColorStop(1, '#1ab56b');
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.strokeStyle = '#2fe38a';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.font = '800 16px Poppins, system-ui, sans-serif';
+  ctx.fillStyle = '#072513';
+  ctx.fillText('Recommencer', cx, btnY + btnH/2);
+
+  gameState.loseBtnRect = { x: btnX, y: btnY, w: btnW, h: btnH };
+  ctx.restore();
+}
+
+function roundRect(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.arcTo(x+w, y,   x+w, y+h, r);
+  ctx.arcTo(x+w, y+h, x,   y+h, r);
+  ctx.arcTo(x,   y+h, x,   y,   r);
+  ctx.arcTo(x,   y,   x+w, y,   r);
+  ctx.closePath();
+}
+function pointInRect(x, y, rect){ return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h; }
+
+/* Foule */
 function drawCrowd(){
   const b=getBounds();
   drawCrowdRegion(0,0,CANVAS_W,b.top,22,20);
@@ -427,7 +546,7 @@ function drawCrowdRegion(x0,y0,x1,y1,stepX=18,stepY=18){
   }
 }
 
-// Dessin des personnages
+/* Dessin persos */
 function drawMusician(ctx,x,y,scale=1.2,isPlayer=false,variant='john'){
   ctx.save(); ctx.translate(x,y); ctx.scale(scale,scale);
   ctx.beginPath(); ctx.ellipse(0,18,9,5,0,0,2*Math.PI); ctx.fillStyle="rgba(0,0,0,0.22)"; ctx.fill();
@@ -438,7 +557,6 @@ function drawMusician(ctx,x,y,scale=1.2,isPlayer=false,variant='john'){
 
   ctx.restore();
 }
-
 function drawTrumpet(ctx){
   ctx.save();
   const angle = -Math.PI*0.06; ctx.translate(4,-12); ctx.rotate(angle);
@@ -488,11 +606,18 @@ function drawAmelie(ctx,isPlayer){
   drawTrumpet(ctx);
 }
 
+/* Aperçus avec pelouse */
 function drawCharacterPreviews(){
   document.querySelectorAll('.char-canvas').forEach(cv=>{
     const c=cv.getContext('2d');
     c.clearRect(0,0,cv.width,cv.height);
-    c.save(); c.translate(cv.width/2, cv.height/2); c.scale(1.25,1.25);
+
+    const pat = makeGrassPattern(c);
+    c.save(); c.fillStyle = pat; c.fillRect(0,0,cv.width,cv.height); c.restore();
+
+    c.save();
+    c.translate(cv.width/2, cv.height/2);
+    c.scale(1.25,1.25);
     const who=cv.dataset.char||'john';
     if (who==='minik') drawMinik(c,false);
     else if (who==='amelie') drawAmelie(c,false);
@@ -501,7 +626,7 @@ function drawCharacterPreviews(){
   });
 }
 
-// Vérification zone via les pieds
+/* Zone via les pieds */
 function isPlayerInZone(){
   const idx = gameState.playerIdx;
   const zoneX = FORMATION[idx].x;
@@ -512,12 +637,10 @@ function isPlayerInZone(){
   return (dx*dx + dy*dy) < (ZONE_RADIUS*ZONE_RADIUS);
 }
 
-// Enchaînement des niveaux (sans pause)
 function completeLevel(){
   gameState.level++;
   showBanner("Bravo, on continue la cohésion jusqu'au bout!");
   gameState.player.outZoneMs = 0;
-  // Ne pas déplacer le joueur automatiquement
   initLevel(gameState.level);
   gameState.currentMove = 0;
   gameState.moveStartTime = performance.now();
@@ -525,5 +648,8 @@ function completeLevel(){
 
 function endGame(){
   gameState.running = false;
-  showOverlay("T'es une terrine!", "Recommencer");
+  gameState.loseActive = true;
+  if (musicAudio) { try { musicAudio.pause(); } catch(e){} }
 }
+
+function restartGame(){ location.reload(); }
