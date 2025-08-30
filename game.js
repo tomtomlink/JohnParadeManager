@@ -1,4 +1,4 @@
-// John Parade Manager – joystick virtuel, score up/down, jambes animées, trompette face caméra, chorégraphies + fin niveau 10
+// John Parade Manager – joystick virtuel, HUD en haut, score up/down, jambes animées, trompette face caméra, chorégraphies + fin niveau 10
 
 let CANVAS_W = 360, CANVAS_H = 640;
 
@@ -37,7 +37,6 @@ let selectedCharacter = 'john';
 // Joystick
 const PLAYER_SPEED = 220; // px/s
 const JOY_MARGIN = 14;    // marge au bord du terrain
-let isDragging = false;   // non utilisé pour la position directe, conservé pour compat
 
 document.addEventListener('DOMContentLoaded', () => {
   canvas = document.getElementById('game-canvas');
@@ -46,13 +45,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const playBtn = document.getElementById('play-btn');
   const selectBtn = document.getElementById('select-btn');
   const selectLabel = document.getElementById('select-label');
-  const charLogo = selectBtn.querySelector('.char-btn-logo');
+  const charLogo = selectBtn?.querySelector('.char-btn-logo');
   const closeSelect = document.getElementById('close-select');
   const modal = document.getElementById('select-modal');
   const mainMenu = document.getElementById('main-menu');
 
   function updateCharLogo() {
-    if (!charLogo) return;
+    if (!charLogo || !(charLogo instanceof HTMLCanvasElement)) return;
     const c = charLogo.getContext('2d');
     c.clearRect(0,0,charLogo.width,charLogo.height);
     const pat = makeGrassPattern(c);
@@ -65,50 +64,57 @@ document.addEventListener('DOMContentLoaded', () => {
     else drawJohn(c,false,0,0,0);
     c.restore();
   }
+
   updateCharLogo();
 
-  modal.setAttribute('aria-hidden','true');
-  modal.style.display = 'none';
+  if (modal){
+    modal.setAttribute('aria-hidden','true');
+    modal.style.display = 'none';
+  }
   drawCharacterPreviews();
 
-  playBtn.addEventListener('click', (e) => {
+  playBtn?.addEventListener('click', (e) => {
     e.preventDefault();
     startGame();
   });
 
-  selectBtn.addEventListener('click', (e) => {
+  selectBtn?.addEventListener('click', (e) => {
     e.preventDefault();
+    if (!modal) return;
     mainMenu.style.display = 'none';
     modal.setAttribute('aria-hidden','false');
     modal.style.display = 'flex';
     drawCharacterPreviews();
   });
 
-  closeSelect.addEventListener('click', (e) => {
+  closeSelect?.addEventListener('click', (e) => {
     e.preventDefault();
+    if (!modal) return;
     modal.setAttribute('aria-hidden','true');
     modal.style.display = 'none';
-    mainMenu.style.display = '';
+    document.getElementById('main-menu').style.display = '';
   });
 
-  modal.addEventListener('click', (e) => {
+  modal?.addEventListener('click', (e) => {
     if (e.target === modal) {
       modal.setAttribute('aria-hidden','true');
       modal.style.display='none';
-      mainMenu.style.display = '';
+      document.getElementById('main-menu').style.display = '';
     }
   });
 
   document.querySelectorAll('.char-card').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      selectedCharacter = btn.dataset.char || 'john';
+      selectedCharacter = btn.getAttribute('data-char') || 'john';
       if (selectLabel) {
         selectLabel.textContent = `Musicien: ${selectedCharacter.charAt(0).toUpperCase()+selectedCharacter.slice(1)}`;
       }
       updateCharLogo();
-      modal.setAttribute('aria-hidden','true');
-      modal.style.display='none';
-      mainMenu.style.display = '';
+      if (modal){
+        modal.setAttribute('aria-hidden','true');
+        modal.style.display='none';
+      }
+      document.getElementById('main-menu').style.display = '';
     });
   });
 
@@ -128,6 +134,7 @@ function easeInOutCubic(t){ return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2; }
 
 function showBanner(text, ms=1400){
   const b = document.getElementById('level-banner');
+  if (!b) return;
   b.textContent = text;
   b.classList.add('show');
   setTimeout(()=>b.classList.remove('show'), ms);
@@ -654,7 +661,7 @@ function render(){
     drawMusician(ctx, x, y, scale, isPlayer, variant, speed, tNow, i*0.73);
   }
 
-  // HUD
+  // HUD (en haut)
   drawCanvasHUD();
 
   // Overlays
@@ -701,13 +708,14 @@ function drawJoystick(){
   ctx.restore();
 }
 
-// HUD dans le terrain (bas, centré, bold rouge)
+// HUD dans le terrain (haut, centré)
 function drawCanvasHUD() {
   if (!gameState) return;
   const b = getBounds();
   const cx = (b.left + b.right) / 2;
 
-  const y1 = b.bottom - 28;
+  // Positions en haut du terrain
+  const y1 = b.top + 24;
   const y2 = y1 + 18;
 
   const displayScore = Math.floor((gameState.scoreTicks || 0) / 100);
@@ -720,11 +728,13 @@ function drawCanvasHUD() {
   ctx.textBaseline = 'middle';
   ctx.font = '800 16px Poppins, system-ui, sans-serif';
 
+  // Contour pour lisibilité
   ctx.lineWidth = 4;
   ctx.strokeStyle = 'rgba(0,0,0,0.65)';
   ctx.strokeText(line1, cx, y1);
   ctx.strokeText(line2, cx, y2);
 
+  // Texte
   ctx.fillStyle = '#ff2d2d';
   ctx.fillText(line1, cx, y1);
   ctx.fillText(line2, cx, y2);
@@ -761,7 +771,7 @@ function drawLoseOverlay() {
   ctx.fillStyle = '#ff2d2d';
   ctx.strokeStyle = 'rgba(0,0,0,0.6)';
   ctx.lineWidth = 4;
-  const msg = "Terrine!";
+  const msg = "T'es une terrine!";
   ctx.strokeText(msg, cx, cardY + 48);
   ctx.fillText(msg, cx, cardY + 48);
 
@@ -890,7 +900,7 @@ function computeFootOffsets(speed, time, seed){
   return { left:  amp * s, right: -amp * s };
 }
 
-/* Dessin persos */
+/* Dessin persos + trompette face caméra */
 function drawMusician(ctx,x,y,scale=1.2,isPlayer=false,variant='john',speed=0,time=0,seed=0){
   const foot = computeFootOffsets(speed, time, seed);
 
@@ -904,7 +914,6 @@ function drawMusician(ctx,x,y,scale=1.2,isPlayer=false,variant='john',speed=0,ti
 
   ctx.restore();
 }
-
 function drawTrumpetFront(ctx){
   // Pavillon vu de face (disque doré)
   ctx.save();
@@ -933,7 +942,6 @@ function drawTrumpetFront(ctx){
 
   ctx.restore();
 }
-
 function baseFeetAndLegs(ctx, footDYLeft=0, footDYRight=0){
   ctx.beginPath(); ctx.moveTo(-5,0); ctx.lineTo(5,0); ctx.lineTo(0,18); ctx.closePath(); ctx.fillStyle="#222"; ctx.fill();
   ctx.beginPath();
@@ -941,7 +949,6 @@ function baseFeetAndLegs(ctx, footDYLeft=0, footDYRight=0){
   ctx.ellipse( 2, 18 + footDYRight,2.1, 1.2, 0, 0, 2*Math.PI);
   ctx.fillStyle="#111"; ctx.fill();
 }
-
 function drawJohn(ctx,isPlayer,footDYLeft,footDYRight,seed){
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
   ctx.beginPath(); ctx.moveTo(-7.5,-8); ctx.lineTo(-3.2,8); ctx.lineTo(3.2,8); ctx.lineTo(7.5,-8); ctx.lineTo(0,-12.5); ctx.closePath();
@@ -957,7 +964,6 @@ function drawJohn(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.fillStyle="#fff"; ctx.fillRect(-1.2,-5,2.4,9.5);
   drawTrumpetFront(ctx);
 }
-
 function drawMinik(ctx,isPlayer,footDYLeft,footDYRight,seed){
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
   ctx.beginPath(); ctx.moveTo(-10,-6); ctx.quadraticCurveTo(-14,4,-6,10); ctx.lineTo(6,10); ctx.quadraticCurveTo(14,4,10,-6); ctx.lineTo(0,-14); ctx.closePath();
@@ -967,7 +973,6 @@ function drawMinik(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.fillStyle="#333"; ctx.fillRect(-5,-24,10,2);
   drawTrumpetFront(ctx);
 }
-
 function drawAmelie(ctx,isPlayer,footDYLeft,footDYRight,seed){
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
   ctx.beginPath(); ctx.moveTo(-8,-6); ctx.lineTo(-12,8); ctx.lineTo(12,8); ctx.lineTo(8,-6); ctx.lineTo(0,-12); ctx.closePath();
