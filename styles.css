@@ -142,7 +142,12 @@ body{
 #level-banner.show{opacity:1}
 
 /* Modale sélection musiciens */
-.modal{position:fixed; inset:0; display:none; background:rgba(0,0,0,0.5); z-index:25; align-items:center; justify-content:center}
+.modal{
+  position:fixed; inset:0; display:none;
+  background:rgba(0,0,0,0.5);
+  z-index:25;
+  align-items:center; justify-content:center;
+}
 .modal[aria-hidden="false"]{display:flex}
 .modal-card{
   width:min(560px,94vw);
@@ -153,14 +158,15 @@ body{
 }
 .modal-header{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px}
 
-/* Responsive grid: cartes centrées et non rognées sur mobile */
+/* Grille responsive: cartes centrées et non rognées sur mobile */
 .characters{
   display:grid;
   gap:12px;
-  /* Chaque carte a ~140px (120px de canvas + 2x10px padding + bordure) */
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  justify-content:center; /* centre les pistes quand il reste de l'espace */
-  justify-items:center;   /* centre chaque carte dans sa piste */
+  /* Des colonnes auto-fit de largeur bornée permettent d'aller à 1→2→3 colonnes selon la largeur,
+     tout en restant centrées */
+  grid-template-columns: repeat(auto-fit, minmax(140px, 160px));
+  justify-content:center;  /* centre les colonnes dans la carte */
+  justify-items:center;    /* centre chaque carte dans sa colonne */
 }
 
 /* Vignettes avec pelouse */
@@ -174,8 +180,8 @@ body{
   overflow: hidden;
   border: 1px solid rgba(255,255,255,0.08);
   box-shadow: 0 10px 20px rgba(0,0,0,0.35);
-  width: 100%;
-  max-width: 180px; /* évite l'étirement excessif sur petits écrans */
+  width: 100%;           /* occupe la largeur de sa colonne */
+  max-width: 180px;      /* évite l'étirement excessif */
 }
 .char-card::before{
   content:"";
