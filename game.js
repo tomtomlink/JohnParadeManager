@@ -714,30 +714,60 @@ function drawCanvasHUD() {
   const b = getBounds();
   const cx = (b.left + b.right) / 2;
 
-  // Positions en haut du terrain
-  const y1 = b.top + 24;
-  const y2 = y1 + 18;
+  // Zone du public: de y = 0 à y = b.top
+  const areaTop = 0;
+  const areaBottom = b.top;
+  const areaH = Math.max(24, areaBottom - areaTop);
+
+  // Mise en page compacte pour tenir dans la bande du public
+  const fontSize = areaH < 48 ? 14 : 16;
+  const lineGap = areaH < 48 ? 14 : 18;
+  const padY = 6;
+
+  const cardH = padY * 2 + fontSize * 2 + (lineGap - fontSize); // deux lignes
+  const cardW = Math.min(CANVAS_W - 24, 320);
+  const centerY = areaTop + areaH / 2;
+  const cardY = clamp(centerY - cardH / 2, 6, areaBottom - cardH - 6);
+  const cardX = cx - cardW / 2;
 
   const displayScore = Math.floor((gameState.scoreTicks || 0) / 100);
-
-  const line1 = `Niveau ${gameState.level} - Temps hors zone: ${(gameState.player.outZoneMs/1000).toFixed(2)}s`;
+  const line1 = `Niveau ${gameState.level} - Hors zone: ${(gameState.player.outZoneMs/1000).toFixed(2)}s`;
   const line2 = `Score: ${displayScore}`;
 
+  // Fond semi-transparent
   ctx.save();
+  const r = 12;
+  ctx.beginPath();
+  ctx.moveTo(cardX + r, cardY);
+  ctx.arcTo(cardX + cardW, cardY, cardX + cardW, cardY + cardH, r);
+  ctx.arcTo(cardX + cardW, cardY + cardH, cardX, cardY + cardH, r);
+  ctx.arcTo(cardX, cardY + cardH, cardX, cardY, r);
+  ctx.arcTo(cardX, cardY, cardX + cardW, cardY, r);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(15,27,19,0.78)'; // fond sombre translucide
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)'; // liseré subtil
+  ctx.stroke();
+
+  // Texte centré
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = '800 16px Poppins, system-ui, sans-serif';
+  ctx.font = `800 ${fontSize}px Poppins, system-ui, sans-serif`;
 
-  // Contour pour lisibilité
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+  const y1 = cardY + padY + fontSize / 2;
+  const y2 = y1 + lineGap;
+
+  // Léger contour pour contraste
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
   ctx.strokeText(line1, cx, y1);
   ctx.strokeText(line2, cx, y2);
 
-  // Texte
   ctx.fillStyle = '#ff2d2d';
   ctx.fillText(line1, cx, y1);
   ctx.fillText(line2, cx, y2);
+
   ctx.restore();
 }
 
