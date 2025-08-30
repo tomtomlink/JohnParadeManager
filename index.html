@@ -2,24 +2,31 @@
 <html lang="fr">
   <head>
     <meta charset="utf-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
     <title>John Parade Manager</title>
+
+    <!-- Police moderne -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link
-      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap"
-      rel="stylesheet"
-    >
-    <link rel="stylesheet" href="styles.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <!-- Styles critiques pour éviter l'affichage cassé si styles.css ne se charge pas -->
+    <style>
+      html,body,#app{height:100%} body{margin:0;font-family:Poppins,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0b1f14;color:#f5f7f9}
+      /* cache par défaut sans CSS externe */
+      #game-container{display:none}
+      #select-modal{display:none}
+      .btn{cursor:pointer}
+    </style>
+
+    <!-- Feuille complète -->
+    <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div id="app">
       <!-- Bandeau message d'enchaînement de niveaux -->
       <div id="level-banner" aria-live="polite"></div>
 
-      <!-- Menu principal modernisé -->
+      <!-- Menu principal -->
       <section id="main-menu" class="card">
         <h1 class="brand">John Parade Manager</h1>
         <p class="tagline">Coordonne ta parade, garde la cohésion.</p>
@@ -30,8 +37,8 @@
         </div>
       </section>
 
-      <!-- Panneau de sélection du musicien -->
-      <div id="select-modal" class="modal" aria-hidden="true">
+      <!-- Panneau de sélection du musicien (caché par défaut via style) -->
+      <div id="select-modal" class="modal" aria-hidden="true" style="display:none">
         <div class="modal-card">
           <div class="modal-header">
             <h2>Choisis ton musicien</h2>
@@ -54,13 +61,14 @@
         </div>
       </div>
 
-      <!-- Conteneur du jeu -->
-      <section id="game-container">
+      <!-- Conteneur du jeu (caché par défaut) -->
+      <section id="game-container" style="display:none">
         <div class="hud">
           <div id="timer" class="hud-item">Niveau 1 - Temps hors zone: 0.00s</div>
           <div id="score" class="hud-item">Score: 0</div>
         </div>
-        <canvas id="game-canvas" width="360" height="640"></canvas>
+        <!-- Fallback de fond pour éviter un grand bloc noir si le rendu n'a pas encore démarré -->
+        <canvas id="game-canvas" width="360" height="640" style="background:#2a5f3a;border-radius:14px;"></canvas>
       </section>
 
       <!-- Overlay fin de partie -->
@@ -72,6 +80,6 @@
       </div>
     </div>
 
-    <script src="game.js"></script>
+    <script src="./game.js"></script>
   </body>
 </html>
