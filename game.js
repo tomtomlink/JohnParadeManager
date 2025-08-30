@@ -1,4 +1,5 @@
-// John Parade Manager – joystick virtuel, HUD en haut, score up/down, jambes animées, trompette face caméra, chorégraphies + fin niveau 10
+// John Parade Manager – + Candice (4e perso), panneaux "Prod-S Arena", joystick virtuel, HUD en haut (zone public),
+// score up/down, jambes animées, trompette face caméra, chorégraphies + fin niveau 10
 
 let CANVAS_W = 360, CANVAS_H = 640;
 
@@ -27,7 +28,10 @@ const colors = {
   crowd: ["#c57b57","#e0b089","#a06c49","#8aa4c8","#d7a1a7","#9b9b9b"],
   brass1: "#D4AF37",
   brass2: "#b08f2d",
-  brassHi: "#fff2a8"
+  brassHi: "#fff2a8",
+  adBg: "#0f1b13",
+  adStroke: "rgba(255,255,255,0.12)",
+  adText: "#e7f0ff"
 };
 
 let canvas, ctx, gameState = null;
@@ -50,6 +54,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const modal = document.getElementById('select-modal');
   const mainMenu = document.getElementById('main-menu');
 
+  // Ajoute dynamiquement la carte Candice si absente
+  ensureCandiceCard();
+
   function updateCharLogo() {
     if (!charLogo || !(charLogo instanceof HTMLCanvasElement)) return;
     const c = charLogo.getContext('2d');
@@ -61,17 +68,34 @@ document.addEventListener('DOMContentLoaded', () => {
     const scale = charLogo.width / 100;
     if (selectedCharacter==='minik') drawMinik(c,false,0,0,0);
     else if (selectedCharacter==='amelie') drawAmelie(c,false,0,0,0);
+    else if (selectedCharacter==='candice') drawCandice(c,false,0,0,0);
     else drawJohn(c,false,0,0,0);
     c.restore();
   }
-
-  updateCharLogo();
 
   if (modal){
     modal.setAttribute('aria-hidden','true');
     modal.style.display = 'none';
   }
+
+  // Listeners de sélection (inclut Candice si injectée)
+  document.querySelectorAll('.char-card').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      selectedCharacter = btn.getAttribute('data-char') || 'john';
+      if (selectLabel) {
+        selectLabel.textContent = `Musicien: ${selectedCharacter.charAt(0).toUpperCase()+selectedCharacter.slice(1)}`;
+      }
+      updateCharLogo();
+      if (modal){
+        modal.setAttribute('aria-hidden','true');
+        modal.style.display='none';
+      }
+      document.getElementById('main-menu').style.display = '';
+    });
+  });
+
   drawCharacterPreviews();
+  updateCharLogo();
 
   playBtn?.addEventListener('click', (e) => {
     e.preventDefault();
@@ -84,7 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
     mainMenu.style.display = 'none';
     modal.setAttribute('aria-hidden','false');
     modal.style.display = 'flex';
-    drawCharacterPreviews();
+    drawCharacterPreviews(); // inclut Candice
   });
 
   closeSelect?.addEventListener('click', (e) => {
@@ -103,27 +127,60 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  document.querySelectorAll('.char-card').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      selectedCharacter = btn.getAttribute('data-char') || 'john';
-      if (selectLabel) {
-        selectLabel.textContent = `Musicien: ${selectedCharacter.charAt(0).toUpperCase()+selectedCharacter.slice(1)}`;
-      }
-      updateCharLogo();
-      if (modal){
-        modal.setAttribute('aria-hidden','true');
-        modal.style.display='none';
-      }
-      document.getElementById('main-menu').style.display = '';
-    });
-  });
-
   musicAudio = new Audio('music.mp3');
   musicAudio.loop = true;
 
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
 });
+
+function ensureCandiceCard() {
+  const grid = document.querySelector('.characters');
+  if (!grid) return;
+  if (grid.querySelector('.char-card[data-char="candice"]')) return;
+
+  const card = document.createElement('div');
+  card.className = 'char-card';
+  card.setAttribute('data-char','candice');
+
+  const canvasPrev = document.createElement('canvas');
+  canvasPrev.className = 'char-canvas';
+  canvasPrev.width = 120;
+  canvasPrev.height = 120;
+
+  const name = document.createElement('div');
+  name.className = 'char-name';
+  name.textContent = 'Candice';
+
+  card.appendChild(canvasPrev);
+  card.appendChild(name);
+  grid.appendChild(card);
+
+  // Listener sélection
+  card.addEventListener('click', ()=>{
+    selectedCharacter = 'candice';
+    const selectLabel = document.getElementById('select-label');
+    if (selectLabel) selectLabel.textContent = 'Musicien: Candice';
+    const selectBtn = document.getElementById('select-btn');
+    const charLogo = selectBtn?.querySelector('.char-btn-logo');
+    if (charLogo && charLogo instanceof HTMLCanvasElement){
+      const c = charLogo.getContext('2d');
+      c.clearRect(0,0,charLogo.width,charLogo.height);
+      const pat = makeGrassPattern(c);
+      c.save(); c.fillStyle = pat; c.fillRect(0,0,charLogo.width,charLogo.height); c.restore();
+      c.save(); c.translate(charLogo.width/2, charLogo.height/2 + 1);
+      const scale = charLogo.width/100;
+      drawCandice(c,false,0,0,0);
+      c.restore();
+    }
+    const modal = document.getElementById('select-modal');
+    if (modal){
+      modal.setAttribute('aria-hidden','true');
+      modal.style.display='none';
+    }
+    document.getElementById('main-menu').style.display = '';
+  });
+}
 
 function getBounds(){ return { left: PAD_LR, right: CANVAS_W - PAD_LR, top: PAD_TOP, bottom: CANVAS_H - PAD_BOTTOM }; }
 function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
@@ -628,6 +685,9 @@ function render(){
   // Foule
   drawCrowd();
 
+  // Panneaux de pub "Prod-S Arena"
+  drawAdBoards();
+
   // Zone jaune
   const iSlot = (gameState? gameState.playerIdx : 12);
   const zoneX = FORMATION[iSlot].x;
@@ -661,7 +721,7 @@ function render(){
     drawMusician(ctx, x, y, scale, isPlayer, variant, speed, tNow, i*0.73);
   }
 
-  // HUD (en haut)
+  // HUD (en zone public en haut)
   drawCanvasHUD();
 
   // Overlays
@@ -672,43 +732,105 @@ function render(){
   if (gameState && gameState.running) drawJoystick();
 }
 
-function drawJoystick(){
-  const jb = getJoystickBase();
-  const J = gameState.joy;
+/* Panneaux publicitaires le long du terrain */
+function drawAdBoards(){
+  const b = getBounds();
+  const pad = 4;
+  const h = 22;
 
-  // Base
+  // Top strip
+  const topY = Math.max(0, b.top - h - pad);
+  drawAdStrip(b.left, topY, b.right - b.left, h, 'horizontal');
+
+  // Bottom strip
+  const bottomY = Math.min(CANVAS_H - h, b.bottom + pad);
+  drawAdStrip(b.left, bottomY, b.right - b.left, h, 'horizontal');
+
+  // Left strip (vertical)
+  const leftX = Math.max(0, b.left - h - pad);
+  drawAdStrip(leftX, b.top, h, b.bottom - b.top, 'vertical');
+
+  // Right strip (vertical)
+  const rightX = Math.min(CANVAS_W - h, b.right + pad);
+  drawAdStrip(rightX, b.top, h, b.bottom - b.top, 'vertical');
+}
+
+function drawAdStrip(x, y, w, h, orientation='horizontal'){
   ctx.save();
-  ctx.globalAlpha = 0.8;
-  ctx.beginPath();
-  ctx.arc(jb.x, jb.y, jb.r, 0, 2*Math.PI);
-  const g = ctx.createRadialGradient(jb.x, jb.y, jb.r*0.2, jb.x, jb.y, jb.r);
-  g.addColorStop(0, 'rgba(0,0,0,0.35)');
-  g.addColorStop(1, 'rgba(0,0,0,0.2)');
-  ctx.fillStyle = g;
-  ctx.fill();
 
+  // Carte fond + bord
+  roundRect(ctx, x, y, w, h, 6);
+  // Dégradé subtil
+  const grad = orientation==='horizontal'
+    ? ctx.createLinearGradient(x, y, x, y+h)
+    : ctx.createLinearGradient(x, y, x+w, y);
+  grad.addColorStop(0, "rgba(255,255,255,0.06)");
+  grad.addColorStop(1, "rgba(255,255,255,0.00)");
+
+  ctx.fillStyle = colors.adBg;
+  ctx.fill();
+  ctx.strokeStyle = colors.adStroke;
   ctx.lineWidth = 2;
-  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
   ctx.stroke();
 
-  // Knob
-  const kx = jb.x + (J.dx || 0) * jb.r * 0.6;
-  const ky = jb.y + (J.dy || 0) * jb.r * 0.6;
-  ctx.beginPath();
-  ctx.arc(kx, ky, jb.r*0.38, 0, 2*Math.PI);
-  const g2 = ctx.createLinearGradient(kx, ky - jb.r*0.38, kx, ky + jb.r*0.38);
-  g2.addColorStop(0, 'rgba(255,255,255,0.55)');
-  g2.addColorStop(1, 'rgba(200,200,200,0.55)');
-  ctx.fillStyle = g2;
-  ctx.fill();
+  ctx.save();
+  ctx.clip();
+  ctx.fillStyle = grad;
+  ctx.fillRect(x, y, w, h);
 
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-  ctx.stroke();
+  // Texte répété "Prod-S Arena"
+  const label = "Prod-S Arena";
+  ctx.fillStyle = colors.adText;
+  ctx.textBaseline = 'middle';
+
+  if (orientation==='horizontal'){
+    let fontSize = 14;
+    if (h >= 26) fontSize = 16;
+    ctx.font = `800 ${fontSize}px Poppins, system-ui, sans-serif`;
+    const metrics = ctx.measureText(label);
+    const step = Math.max(metrics.width + 32, 120);
+    const baseY = y + h/2;
+
+    for (let px = x + 12; px < x + w - 12; px += step){
+      // Ombre légère
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.strokeText(label, px, baseY);
+      // Texte
+      ctx.fillText(label, px, baseY);
+    }
+  } else {
+    // Vertical: rotation 90° pour lire depuis l'intérieur du terrain
+    let fontSize = 14;
+    if (w >= 26) fontSize = 16;
+    ctx.font = `800 ${fontSize}px Poppins, system-ui, sans-serif`;
+    const metrics = ctx.measureText(label);
+    const step = Math.max(metrics.width + 32, 120);
+
+    // Dessin en colonnes, pivot dans la bande
+    const cx = x + w/2;
+    ctx.translate(cx, y);
+    ctx.rotate(-Math.PI/2);
+
+    const totalLen = (bott=y + h, h); // not used, keep simple
+    const start = -h/2 + 12;
+    const end = h/2 - 12;
+
+    // Comme on a pivoté, on parcourt "horizontalement" le long de l'ancienne hauteur
+    const visibleLen = h - 24;
+    for (let py = -visibleLen/2; py < visibleLen/2; py += step){
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.strokeText(label, py, 0);
+      ctx.fillText(label, py, 0);
+    }
+  }
+
+  ctx.restore();
   ctx.restore();
 }
 
-// HUD dans le terrain (haut, centré)
+// HUD dans la zone du public (au-dessus du terrain)
 function drawCanvasHUD() {
   if (!gameState) return;
   const b = getBounds();
@@ -719,7 +841,7 @@ function drawCanvasHUD() {
   const areaBottom = b.top;
   const areaH = Math.max(24, areaBottom - areaTop);
 
-  // Mise en page compacte pour tenir dans la bande du public
+  // Mise en page compacte
   const fontSize = areaH < 48 ? 14 : 16;
   const lineGap = areaH < 48 ? 14 : 18;
   const padY = 6;
@@ -940,6 +1062,7 @@ function drawMusician(ctx,x,y,scale=1.2,isPlayer=false,variant='john',speed=0,ti
 
   if (variant==='minik') drawMinik(ctx,isPlayer,foot.left,foot.right,seed);
   else if (variant==='amelie') drawAmelie(ctx,isPlayer,foot.left,foot.right,seed);
+  else if (variant==='candice') drawCandice(ctx,isPlayer,foot.left,foot.right,seed);
   else drawJohn(ctx,isPlayer,foot.left,foot.right,seed);
 
   ctx.restore();
@@ -1013,6 +1136,74 @@ function drawAmelie(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.beginPath(); ctx.moveTo(0,-30); ctx.lineTo(-4.5,-18); ctx.lineTo(4.5,-18); ctx.closePath(); ctx.fillStyle="#1d1d1d"; ctx.fill();
   drawTrumpetFront(ctx);
 }
+function drawCandice(ctx,isPlayer,footDYLeft,footDYRight,seed){
+  // Personnage original à thème hivernal (pas d'IP existante)
+  baseFeetAndLegs(ctx, footDYLeft, footDYRight);
+
+  // Robe glacée (dégradé bleu)
+  const grdDress = ctx.createLinearGradient(0,-14, 0, 10);
+  grdDress.addColorStop(0, isPlayer ? "#bfe9ff" : "#9ad7ff");
+  grdDress.addColorStop(1, isPlayer ? "#79b9ff" : "#5aa7f0");
+  ctx.beginPath();
+  ctx.moveTo(-9,-6);
+  ctx.quadraticCurveTo(-12,6,-6,10);
+  ctx.lineTo(6,10);
+  ctx.quadraticCurveTo(12,6,9,-6);
+  ctx.lineTo(0,-14);
+  ctx.closePath();
+  ctx.fillStyle = grdDress;
+  ctx.fill();
+
+  // Cape translucide givrée
+  ctx.beginPath();
+  ctx.moveTo(-8,-8);
+  ctx.quadraticCurveTo(-14,-2,-10,8);
+  ctx.lineTo(10,8);
+  ctx.quadraticCurveTo(14,-2,8,-8);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(180,220,255,0.25)";
+  ctx.fill();
+
+  // Tête
+  ctx.beginPath(); ctx.arc(0,-15,5.4,0,2*Math.PI); ctx.fillStyle="#f6dfc8"; ctx.fill();
+
+  // Chevelure claire + tresse stylisée (générique)
+  ctx.fillStyle = "#f0ede1";
+  // Frange
+  ctx.beginPath();
+  ctx.ellipse(0,-19.2,7.0,3.2,0,0,2*Math.PI);
+  ctx.fill();
+  // Tresse côté droit
+  ctx.beginPath();
+  ctx.moveTo(2,-13);
+  ctx.quadraticCurveTo(7,-9,4,-5);
+  ctx.quadraticCurveTo(2,-2,5,0);
+  ctx.quadraticCurveTo(3,2,4,4);
+  ctx.strokeStyle = "#e1d9c9";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Petit diadème de flocon (générique)
+  ctx.save();
+  ctx.translate(0,-21.5);
+  ctx.strokeStyle = isPlayer ? "#dff6ff" : "#cfefff";
+  ctx.lineWidth = 1.5;
+  for (let i=0;i<6;i++){
+    ctx.rotate(Math.PI/3);
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.lineTo(0,-4.5);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Liseré central clair
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.fillRect(-1.1,-5.5,2.2,10);
+
+  // Trompette face caméra
+  drawTrumpetFront(ctx);
+}
 
 /* Aperçus avec pelouse */
 function drawCharacterPreviews(){
@@ -1026,9 +1217,10 @@ function drawCharacterPreviews(){
     c.save();
     c.translate(cv.width/2, cv.height/2);
     c.scale(1.25,1.25);
-    const who=cv.dataset.char||'john';
+    const who=cv.dataset.char||cv.parentElement?.getAttribute('data-char')||'john';
     if (who==='minik') drawMinik(c,false,0,0,0);
     else if (who==='amelie') drawAmelie(c,false,0,0,0);
+    else if (who==='candice') drawCandice(c,false,0,0,0);
     else drawJohn(c,false,0,0,0);
     c.restore();
   });
