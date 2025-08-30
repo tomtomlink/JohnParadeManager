@@ -1,31 +1,77 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1.0, user-scalable=no">
-  <title>John Parade Manager</title>
-  <link rel="stylesheet" href="style.css">
-</head>
-<body>
-  <main id="main-menu">
-    <h1>John Parade Manager</h1>
-    <button id="play-btn">Jouer</button>
-    <button id="select-musician-btn" disabled>Sélection du musicien</button>
-  </main>
-  <div id="game-container" style="display:none;">
-    <canvas id="game-canvas" width="360" height="600"></canvas>
-    <div id="arrows"></div>
-    <div id="ui">
-      <span id="timer"></span>
-      <span id="score"></span>
-    </div>
-    <div id="game-overlay" style="display:none;">
-      <div id="overlay-content">
-        <div id="overlay-message"></div>
-        <button id="overlay-button">Continuer</button>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <title>John Parade Manager</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Bandeau message d'enchaînement de niveaux -->
+      <div id="level-banner" aria-live="polite"></div>
+
+      <!-- Menu principal modernisé -->
+      <section id="main-menu" class="card">
+        <h1 class="brand">John Parade Manager</h1>
+        <p class="tagline">Coordonne ta parade, garde la cohésion.</p>
+
+        <div class="hero-actions">
+          <button id="play-btn" class="btn primary">Jouer</button>
+          <button id="select-btn" class="btn ghost">Sélection du musicien</button>
+        </div>
+      </section>
+
+      <!-- Panneau de sélection du musicien -->
+      <div id="select-modal" class="modal" aria-hidden="true">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h2>Choisis ton musicien</h2>
+            <button id="close-select" class="icon-btn" aria-label="Fermer">✕</button>
+          </div>
+          <div class="characters">
+            <button class="char-card" data-char="john" aria-label="John Parade">
+              <canvas width="120" height="120" class="char-canvas" data-char="john"></canvas>
+              <span class="char-name">John Parade</span>
+            </button>
+            <button class="char-card" data-char="minik" aria-label="Minik">
+              <canvas width="120" height="120" class="char-canvas" data-char="minik"></canvas>
+              <span class="char-name">Minik</span>
+            </button>
+            <button class="char-card" data-char="amelie" aria-label="Amélie">
+              <canvas width="120" height="120" class="char-canvas" data-char="amelie"></canvas>
+              <span class="char-name">Amélie</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Conteneur du jeu -->
+      <section id="game-container">
+        <div class="hud">
+          <div id="timer" class="hud-item">Niveau 1 - Temps hors zone: 0.00s</div>
+          <div id="score" class="hud-item">Score: 0</div>
+        </div>
+        <canvas id="game-canvas" width="360" height="640"></canvas>
+      </section>
+
+      <!-- Overlay fin de partie -->
+      <div id="game-overlay" class="overlay" style="display:none">
+        <div class="overlay-card">
+          <p id="overlay-message"></p>
+          <button id="overlay-button" class="btn primary">Recommencer</button>
+        </div>
       </div>
     </div>
-  </div>
-  <script src="game.js"></script>
-</body>
+
+    <script src="game.js"></script>
+  </body>
 </html>
