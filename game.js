@@ -1,4 +1,4 @@
-// John Parade Manager – score up/down, jambes animées, trompette face caméra, chorégraphies + fin niveau 10
+// John Parade Manager – joystick virtuel, score up/down, jambes animées, trompette face caméra, chorégraphies + fin niveau 10
 
 let CANVAS_W = 360, CANVAS_H = 640;
 
@@ -33,7 +33,11 @@ const colors = {
 let canvas, ctx, gameState = null;
 let musicAudio = null;
 let selectedCharacter = 'john';
-let isDragging = false;
+
+// Joystick
+const PLAYER_SPEED = 220; // px/s
+const JOY_MARGIN = 14;    // marge au bord du terrain
+let isDragging = false;   // non utilisé pour la position directe, conservé pour compat
 
 document.addEventListener('DOMContentLoaded', () => {
   canvas = document.getElementById('game-canvas');
@@ -174,9 +178,17 @@ function startGame(){
     loseBtnRect: {x:0,y:0,w:0,h:0},
     winBtnRect: {x:0,y:0,w:0,h:0},
 
-    // Pour animation des jambes (détection de mouvement)
     prevFormation: [],
-    prevPlayer: {x: FORMATION[12].x, y: FORMATION[12].y}
+    prevPlayer: {x: FORMATION[12].x, y: FORMATION[12].y},
+
+    // Joystick state
+    joy: {
+      active: false,
+      pointerId: null,
+      dx: 0, dy: 0, mag: 0 // composantes normalisées (-1..1) et magnitude (0..1)
+    },
+
+    lastFrameTS: performance.now()
   };
 
   if (musicAudio && musicAudio.paused) { musicAudio.currentTime = 0; musicAudio.play().catch(()=>{}); }
@@ -395,7 +407,7 @@ function grid5x5(cx,cy,size){ const pts=[]; const step=size/4, sx=cx-size/2, sy=
 function plusShape(cx,cy,r){
   const pts=[], step=r/4;
   for(let i=-2;i<=2;i++) pts.push({x:cx,y:cy+i*step});
-  for(let i=-2;i<=2;i++) if(i!==0) pts.push({x:cx+i*step,y:cy});
+  for(let i=-2;i<=2)i f(i!==0) pts.push({x:cx+i*step,y:cy});
   while(pts.length<MUSICIANS){
     const k=pts.length, off=.6+.2*((k%4)-1.5);
     pts.push({x:cx+off*step,y:cy+off*step});
@@ -430,6 +442,7 @@ function update(){
   const now = performance.now();
   let elapsed = now - gameState.moveStartTime;
 
+  // Avance des formations
   while (elapsed >= gameState.moveDuration){
     for (let i=0;i<FORMATION.length;i++){ FORMATION[i].x = gameState.moveTo[i].x; FORMATION[i].y = gameState.moveTo[i].y; }
 
@@ -453,6 +466,19 @@ function update(){
     FORMATION[i].y = lerp(gameState.moveFrom[i].y, gameState.moveTo[i].y, t);
   }
 
+  // Déplacement du joueur via joystick
+  const dtSec = Math.max(0, Math.min(0.05, (now - gameState.lastFrameTS) / 1000));
+  const J = gameState.joy;
+  if (J.mag > 0.001){
+    const vx = J.dx * PLAYER_SPEED;
+    const vy = J.dy * PLAYER_SPEED;
+    const nx = gameState.player.x + vx * dtSec;
+    const ny = gameState.player.y + vy * dtSec;
+    const clamped = clampIntoBounds({x:nx, y:ny}, 30);
+    gameState.player.x = clamped.x;
+    gameState.player.y = clamped.y;
+  }
+
   // Score: up/down à la même vitesse, après la période de grâce
   const inGrace = now < gameState.graceUntil;
   if (!inGrace){
@@ -465,7 +491,23 @@ function update(){
       if (gameState.player.outZoneMs > MAX_OUT_ZONE_MS) endGame();
     }
   }
+
+  // Mémoriser pour anim jambes
+  gameState.prevFormation = FORMATION.map(p=>({...p}));
+  gameState.prevPlayer = {x: gameState.player.x, y: gameState.player.y};
+  gameState.lastFrameTS = now;
 }
+
+/* Joystick helpers */
+function getJoystickBase(){
+  // Taille adaptative et position en bas droite du terrain
+  const b = getBounds();
+  const R = clamp(Math.round(CANVAS_W * 0.12), 40, 56);
+  const cx = b.right - R - JOY_MARGIN;
+  const cy = b.bottom - R - JOY_MARGIN;
+  return { x: cx, y: cy, r: R };
+}
+function isInCircle(x,y,cx,cy,r){ const dx=x-cx, dy=y-cy; return dx*dx + dy*dy <= r*r; }
 
 function onPointerDown(e){
   e.preventDefault?.();
@@ -487,22 +529,53 @@ function onPointerDown(e){
     return;
   }
 
-  isDragging = true;
-  setPlayerFromEvent(e);
+  if (!gameState || !gameState.running) return;
+
+  const pt = getEventPoint(e);
+  const jb = getJoystickBase();
+  // Active le joystick si on touche dans sa zone
+  if (isInCircle(pt.x, pt.y, jb.x, jb.y, jb.r * 1.2)){
+    const dx = pt.x - jb.x;
+    const dy = pt.y - jb.y;
+    const dist = Math.hypot(dx,dy) || 1;
+    const mag = Math.min(1, dist / jb.r);
+    gameState.joy.active = true;
+    gameState.joy.pointerId = e.pointerId ?? 0;
+    gameState.joy.dx = (dx/dist) * mag;
+    gameState.joy.dy = (dy/dist) * mag;
+    gameState.joy.mag = mag;
+  }
 }
-function onPointerMove(e){ if (!isDragging) return; setPlayerFromEvent(e); }
-function onPointerUp(e){ isDragging = false; }
+
+function onPointerMove(e){
+  if (!gameState?.joy.active) return;
+  if ((e.pointerId ?? 0) !== gameState.joy.pointerId) return;
+
+  const pt = getEventPoint(e);
+  const jb = getJoystickBase();
+  const dx = pt.x - jb.x;
+  const dy = pt.y - jb.y;
+  const dist = Math.hypot(dx,dy) || 1;
+  const mag = Math.min(1, dist / jb.r);
+  gameState.joy.dx = (dx/dist) * mag;
+  gameState.joy.dy = (dy/dist) * mag;
+  gameState.joy.mag = mag;
+}
+
+function onPointerUp(e){
+  if (!gameState) return;
+  if (gameState.joy.active && ((e.pointerId ?? 0) === gameState.joy.pointerId)){
+    gameState.joy.active = false;
+    gameState.joy.pointerId = null;
+    gameState.joy.dx = 0; gameState.joy.dy = 0; gameState.joy.mag = 0;
+  }
+}
 
 function getEventPoint(e){
   const rect = canvas.getBoundingClientRect();
   const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
   const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
   return clampIntoBounds({x,y}, 30);
-}
-function setPlayerFromEvent(e){
-  const c = getEventPoint(e);
-  gameState.player.x = c.x;
-  gameState.player.y = c.y;
 }
 
 let grassPattern = null;
@@ -527,32 +600,38 @@ function makeGrassPattern(context){
 }
 
 function render(){
+  // Fond
   ctx.fillStyle = getGrassPattern();
   ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
 
   const b=getBounds();
 
+  // Zones foule
   ctx.fillStyle='rgba(0,0,0,0.18)';
   ctx.fillRect(0,0,CANVAS_W,b.top);
   ctx.fillRect(0,b.bottom,CANVAS_W,CANVAS_H-b.bottom);
   ctx.fillRect(0,b.top,b.left,b.bottom-b.top);
   ctx.fillRect(b.right,b.top,CANVAS_W-b.right,b.bottom-b.top);
 
+  // Terrain
   ctx.strokeStyle=colors.line;
   ctx.lineWidth=2;
   ctx.strokeRect(b.left,b.top,b.right-b.left,b.bottom-b.top);
 
+  // Foule
   drawCrowd();
 
+  // Zone jaune
   const iSlot = (gameState? gameState.playerIdx : 12);
   const zoneX = FORMATION[iSlot].x;
   const zoneY = FORMATION[iSlot].y + FOOT_OFFSET * SCALE_PNJ;
   ctx.beginPath(); ctx.arc(zoneX, zoneY, ZONE_RADIUS, 0, 2*Math.PI);
   ctx.fillStyle = colors.zone; ctx.fill();
 
-  // Temps actuel pour l'animation des jambes
+  // Temps pour anim jambes
   const tNow = performance.now();
 
+  // Musiciens
   for (let i=0;i<FORMATION.length;i++){
     const isPlayer = (gameState && i===gameState.playerIdx);
     const x = isPlayer ? gameState.player.x : FORMATION[i].x;
@@ -560,7 +639,6 @@ function render(){
     const scale = isPlayer ? SCALE_PLAYER : SCALE_PNJ;
     const variant = isPlayer ? selectedCharacter : 'john';
 
-    // Vitesse approximée (pixels/frame) depuis la frame précédente
     let speed = 0;
     if (gameState){
       if (isPlayer){
@@ -573,20 +651,54 @@ function render(){
         speed = Math.hypot(dx,dy);
       }
     }
-
     drawMusician(ctx, x, y, scale, isPlayer, variant, speed, tNow, i*0.73);
   }
 
+  // HUD
   drawCanvasHUD();
 
+  // Overlays
   if (gameState && gameState.loseActive) drawLoseOverlay();
   if (gameState && gameState.winActive) drawWinOverlay();
 
-  // Mémoriser les positions pour l'animation des jambes à la prochaine frame
-  if (gameState){
-    gameState.prevFormation = FORMATION.map(p=>({...p}));
-    gameState.prevPlayer = {x: gameState.player.x, y: gameState.player.y};
-  }
+  // Joystick visuel
+  if (gameState && gameState.running) drawJoystick();
+}
+
+function drawJoystick(){
+  const jb = getJoystickBase();
+  const J = gameState.joy;
+
+  // Base
+  ctx.save();
+  ctx.globalAlpha = 0.8;
+  ctx.beginPath();
+  ctx.arc(jb.x, jb.y, jb.r, 0, 2*Math.PI);
+  const g = ctx.createRadialGradient(jb.x, jb.y, jb.r*0.2, jb.x, jb.y, jb.r);
+  g.addColorStop(0, 'rgba(0,0,0,0.35)');
+  g.addColorStop(1, 'rgba(0,0,0,0.2)');
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.stroke();
+
+  // Knob
+  const kx = jb.x + (J.dx || 0) * jb.r * 0.6;
+  const ky = jb.y + (J.dy || 0) * jb.r * 0.6;
+  ctx.beginPath();
+  ctx.arc(kx, ky, jb.r*0.38, 0, 2*Math.PI);
+  const g2 = ctx.createLinearGradient(kx, ky - jb.r*0.38, kx, ky + jb.r*0.38);
+  g2.addColorStop(0, 'rgba(255,255,255,0.55)');
+  g2.addColorStop(1, 'rgba(200,200,200,0.55)');
+  ctx.fillStyle = g2;
+  ctx.fill();
+
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.stroke();
+  ctx.restore();
 }
 
 // HUD dans le terrain (bas, centré, bold rouge)
@@ -619,7 +731,7 @@ function drawCanvasHUD() {
   ctx.restore();
 }
 
-// Écran de défaite dans le canvas + bouton Recommencer
+// Écran de défaite
 function drawLoseOverlay() {
   const b = getBounds();
   const fieldW = b.right - b.left;
@@ -769,9 +881,8 @@ function drawCrowdRegion(x0,y0,x1,y1,stepX=18,stepY=18){
   }
 }
 
-/* Anim jambes: calcule offsets en fonction de la vitesse */
+/* Anim jambes */
 function computeFootOffsets(speed, time, seed){
-  // speed en px/frame; 0 => pas d'anim. Amplitude bornée.
   const amp = Math.min(3.5, speed * 0.9);
   if (amp < 0.1) return {left: 0, right: 0};
   const phase = time*0.012 + seed;
@@ -800,14 +911,12 @@ function drawTrumpetFront(ctx){
   const bx = 0, by = -10;
   const rOuter = 5.6, rInner = 3.8;
 
-  // Halo/ombre
   const halo = ctx.createRadialGradient(bx,by,1, bx,by,rOuter+2);
   halo.addColorStop(0, "rgba(0,0,0,0.10)");
   halo.addColorStop(1, "rgba(0,0,0,0.0)");
   ctx.fillStyle = halo;
   ctx.beginPath(); ctx.arc(bx,by,rOuter+2,0,2*Math.PI); ctx.fill();
 
-  // Couronne externe
   const ring = ctx.createRadialGradient(bx,by,1, bx,by,rOuter);
   ring.addColorStop(0.0, colors.brass1);
   ring.addColorStop(0.7, colors.brass2);
@@ -815,7 +924,6 @@ function drawTrumpetFront(ctx){
   ctx.fillStyle = ring;
   ctx.beginPath(); ctx.arc(bx,by,rOuter,0,2*Math.PI); ctx.fill();
 
-  // Coeur plus clair
   const core = ctx.createRadialGradient(bx-1,by-1,0.5, bx,by,rInner);
   core.addColorStop(0.0, colors.brassHi);
   core.addColorStop(0.6, colors.brass1);
@@ -827,9 +935,7 @@ function drawTrumpetFront(ctx){
 }
 
 function baseFeetAndLegs(ctx, footDYLeft=0, footDYRight=0){
-  // Jambes "pantalon" (triangle)
   ctx.beginPath(); ctx.moveTo(-5,0); ctx.lineTo(5,0); ctx.lineTo(0,18); ctx.closePath(); ctx.fillStyle="#222"; ctx.fill();
-  // Pieds animés (offsets verticaux simples)
   ctx.beginPath();
   ctx.ellipse(-2, 18 + footDYLeft, 2.1, 1.2, 0, 0, 2*Math.PI);
   ctx.ellipse( 2, 18 + footDYRight,2.1, 1.2, 0, 0, 2*Math.PI);
@@ -838,23 +944,17 @@ function baseFeetAndLegs(ctx, footDYLeft=0, footDYRight=0){
 
 function drawJohn(ctx,isPlayer,footDYLeft,footDYRight,seed){
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
-  // Torse
   ctx.beginPath(); ctx.moveTo(-7.5,-8); ctx.lineTo(-3.2,8); ctx.lineTo(3.2,8); ctx.lineTo(7.5,-8); ctx.lineTo(0,-12.5); ctx.closePath();
   ctx.fillStyle = isPlayer ? "#FFD700" : "#d00"; ctx.fill();
-  // Plastron blanc
   ctx.beginPath(); ctx.moveTo(-2.2,-9.5); ctx.lineTo(2.2,-9.5); ctx.lineTo(0,-12.5); ctx.closePath(); ctx.fillStyle="#fff"; ctx.fill();
-  // Epaulettes
   ctx.beginPath(); ctx.moveTo(-7.5,-8); ctx.lineTo(-10.5,-3); ctx.lineTo(-7.5,3); ctx.lineTo(-5.5,-6); ctx.closePath();
   ctx.moveTo(7.5,-8); ctx.lineTo(10.5,-3); ctx.lineTo(7.5,3); ctx.lineTo(5.5,-6); ctx.closePath(); ctx.fillStyle="#fff"; ctx.fill();
-  // Tête et chapeau
   ctx.beginPath(); ctx.arc(0,-14,5.2,0,2*Math.PI); ctx.fillStyle="#fbe2b6"; ctx.fill();
   ctx.beginPath(); ctx.ellipse(0,-18.5,6.4,3.2,0,0,2*Math.PI); ctx.fillStyle="#fff"; ctx.fill();
   ctx.beginPath(); ctx.rect(-4.2,-28.5,8.4,10.5); ctx.fillStyle="#fff"; ctx.fill();
   ctx.fillStyle="#111"; ctx.fillRect(-4.2,-22.4,8.4,2.2);
   ctx.fillStyle="#d00"; ctx.fillRect(-4.2,-28.5,8.4,2.2);
-  // Colonne centrale
   ctx.fillStyle="#fff"; ctx.fillRect(-1.2,-5,2.4,9.5);
-  // Trompette face caméra
   drawTrumpetFront(ctx);
 }
 
