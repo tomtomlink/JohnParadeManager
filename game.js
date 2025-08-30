@@ -8,7 +8,11 @@
 // - Défaite: message aléatoire ("Terrine!", "10 Jours d'arrêt!", "Réformé!")
 // - High Score: bouton + fenêtre type borne d’arcade (défilement), scores en localStorage
 // - Rendu net (DPR aware) des canvases UI, ajustements mobiles (logo non coupé)
+// - Miniature du musicien choisi dans le menu: avatar "tête" net et recadré (correction bug)
 
+// ============================================================================
+// Constantes et état
+// ============================================================================
 let CANVAS_W = 360, CANVAS_H = 640;
 
 const MUSICIANS = 25;
@@ -90,6 +94,9 @@ function getRepoConfig(){
   return { repo, token, branch };
 }
 
+// ============================================================================
+// Boot
+// ============================================================================
 document.addEventListener('DOMContentLoaded', () => {
   canvas = document.getElementById('game-canvas');
   if (!canvas) return;
@@ -104,47 +111,20 @@ document.addEventListener('DOMContentLoaded', () => {
   ensureHUDFonts();
   ensureMainLogo();
   setMenuGrassBackground();
-  ensureHighScoreUI(); // bouton + modal high score
+  ensureHighScoreUI(); // bouton + modal high score (arcade ticker)
 
   ensureCandiceCard();
 
   const playBtn = document.getElementById('play-btn');
   const selectBtn = document.getElementById('select-btn');
   const selectLabel = document.getElementById('select-label');
-  const charLogo = selectBtn ? selectBtn.querySelector('.char-btn-logo') : null;
   const closeSelect = document.getElementById('close-select');
   const modal = document.getElementById('select-modal');
   const mainMenu = document.getElementById('main-menu');
 
-  function scaleCanvasToDPR(cv){
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    const rect = cv.getBoundingClientRect();
-    if (rect.width && rect.height){
-      cv.style.width = rect.width + 'px';
-      cv.style.height = rect.height + 'px';
-      cv.width = Math.round(rect.width * dpr);
-      cv.height = Math.round(rect.height * dpr);
-    }
-    const c = cv.getContext('2d');
-    c.setTransform(1,0,0,1,0,0);
-    c.scale(dpr, dpr);
-    return c;
-  }
-
-  function updateCharLogo() {
-    if (!charLogo || !(charLogo instanceof HTMLCanvasElement)) return;
-    const c = scaleCanvasToDPR(charLogo);
-    c.clearRect(0,0,charLogo.clientWidth,charLogo.clientHeight);
-    const pat = makeGrassPattern(c);
-    c.save(); c.fillStyle = pat; c.fillRect(0,0,charLogo.clientWidth,charLogo.clientHeight); c.restore();
-    c.save();
-    c.translate(charLogo.clientWidth/2, charLogo.clientHeight/2 + 1);
-    if (selectedCharacter==='minik') drawMinik(c,false,0,0,0);
-    else if (selectedCharacter==='amelie') drawAmelie(c,false,0,0,0);
-    else if (selectedCharacter==='candice') drawCandice(c,false,0,0,0);
-    else drawJohn(c,false,0,0,0);
-    c.restore();
-  }
+  // Miniature avatar tête dans le bouton de sélection
+  ensureCharLogoCanvas();
+  updateCharLogo(); // initial
 
   if (modal){
     modal.setAttribute('aria-hidden','true');
@@ -153,25 +133,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Sélection personnage
   const cards = document.querySelectorAll('.char-card');
-  for (let i=0;i<cards.length;i++){
-    const btn = cards[i];
+  cards.forEach(btn=>{
     btn.addEventListener('click', ()=>{
       selectedCharacter = btn.getAttribute('data-char') || 'john';
       if (selectLabel) {
         const name = selectedCharacter.charAt(0).toUpperCase()+selectedCharacter.slice(1);
         selectLabel.textContent = 'Musicien: ' + name;
       }
-      updateCharLogo();
+      updateCharLogo(); // met à jour l’avatar tête
       if (modal){
         modal.setAttribute('aria-hidden','true');
         modal.style.display='none';
       }
       if (mainMenu) mainMenu.style.display = '';
     });
-  }
+  });
 
-  drawCharacterPreviews();
-  updateCharLogo();
+  drawCharacterPreviews(); // grilles (corps complet)
 
   if (playBtn){
     playBtn.addEventListener('click', function(e){
@@ -203,16 +181,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  if (modal){
-    modal.addEventListener('click', function(e){
-      if (e.target === modal) {
-        modal.setAttribute('aria-hidden','true');
-        modal.style.display='none';
-        if (mainMenu) mainMenu.style.display = '';
-      }
-    });
-  }
-
   try {
     musicAudio = new Audio('music.mp3');
     musicAudio.loop = true;
@@ -227,26 +195,24 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-/* MENU: logo image centré + panneau + bouton High Score + police nette */
+// ============================================================================
+// Menu principal: panneau, logo, bouton High Score, styles
+// ============================================================================
 function ensureMainLogo(){
   const mm = document.getElementById('main-menu');
   if (!mm) return;
 
-  // Supprimer ancien canvas s'il existe
+  // purges
   const oldCanvas = document.getElementById('title-logo');
   if (oldCanvas && oldCanvas.parentNode) oldCanvas.parentNode.removeChild(oldCanvas);
-
-  // Supprimer texte offensant éventuel
   removeOffensiveText("Edition Tatoo de Merde");
-
-  // Cacher H1 texte "John Parade Manager"
   const maybeTitles = document.querySelectorAll('h1,h2,.app-title,.title');
   maybeTitles.forEach(n=>{
     const t = (n.textContent||'').trim().toLowerCase();
     if (t.includes('john parade manager')) n.style.display = 'none';
   });
 
-  // Panneau menu
+  // panneau
   let panel = document.getElementById('menu-panel');
   if (!panel){
     panel = document.createElement('div');
@@ -254,7 +220,7 @@ function ensureMainLogo(){
     document.getElementById('main-menu').insertBefore(panel, mm.firstChild || null);
   }
 
-  // Wrapper logo
+  // logo
   let wrap = document.getElementById('main-logo-wrap');
   if (!wrap){
     wrap = document.createElement('div');
@@ -265,7 +231,6 @@ function ensureMainLogo(){
     panel.insertBefore(wrap, panel.firstChild || null);
   }
 
-  // Image logo
   let img = document.getElementById('main-logo');
   if (!img){
     img = document.createElement('img');
@@ -277,7 +242,7 @@ function ensureMainLogo(){
   }
   img.src = (typeof MAIN_LOGO_SRC !== 'undefined') ? MAIN_LOGO_SRC : 'menu-logo.png';
 
-  // Zone actions
+  // actions
   let actions = document.getElementById('menu-actions');
   if (!actions){
     actions = document.createElement('div');
@@ -286,13 +251,12 @@ function ensureMainLogo(){
     panel.appendChild(actions);
   }
 
-  // Y placer play/select si présents
   const play = document.getElementById('play-btn');
   const select = document.getElementById('select-btn');
   if (play && play.parentElement !== actions) actions.appendChild(play);
   if (select && select.parentElement !== actions) actions.appendChild(select);
 
-  // Bouton High Score (à droite de sélection du musicien)
+  // bouton High Score
   let hsBtn = document.getElementById('highscore-btn');
   if (!hsBtn){
     hsBtn = document.createElement('button');
@@ -333,7 +297,7 @@ function removeOffensiveText(text){
   });
 }
 
-/* Anti-flou / rendu net sur menus & modale sélection (CSS + font smoothing) */
+/* Styles: police nette menus + position mobile */
 function injectMenuLogoStyles(){
   const STYLE_ID = 'menu-logo-style';
   const prev = document.getElementById(STYLE_ID);
@@ -414,6 +378,17 @@ function injectMenuLogoStyles(){
       filter: none !important;
     }
 
+    /* Canvas avatar dans le bouton de sélection (rond, net) */
+    #select-btn .char-btn-logo{
+      display: inline-block;
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.25);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25) inset;
+      background: transparent;
+    }
+
     #menu-actions.menu-actions{
       display: flex;
       flex-wrap: wrap;
@@ -490,7 +465,9 @@ function setMenuGrassBackground(){
   mm.style.backgroundImage = `url(${off.toDataURL()})`;
 }
 
-/* High Score UI (bouton + modal + ticker façon arcade) */
+// ============================================================================
+// High Score UI (bouton + modal + ticker façon arcade)
+// ============================================================================
 function ensureHighScoreUI(){
   // Style
   if (!document.getElementById('highscore-style')){
@@ -585,6 +562,14 @@ function ensureHighScoreUI(){
 
     hsState.canvas = canvasHS;
     hsState.ctx = canvasHS.getContext('2d');
+
+    // Ecoute rafraîchissement live quand un score est enregistré
+    window.addEventListener('jpm:score-saved', () => {
+      if (!hsState) return;
+      hsState.entries = buildHighScoreTickerList(loadHighScores());
+      hsState.offset = 0;
+    });
+
     resizeHighScoreCanvas();
   }
 }
@@ -627,9 +612,7 @@ function saveHighScoreLocally(entry){
   const arr = loadHighScores();
   arr.push(entry);
   const trimmed = normalizeScores(arr).slice(0, 50);
-  try {
-    localStorage.setItem(HS_STORAGE_KEY, JSON.stringify(trimmed));
-  } catch(_){}
+  try { localStorage.setItem(HS_STORAGE_KEY, JSON.stringify(trimmed)); } catch(_){}
   return trimmed;
 }
 function normalizeScores(arr){
@@ -644,8 +627,12 @@ function buildHighScoreTickerList(base){
   const list = [];
   list.push({ type:'title', text:'HIGH SCORES' });
   list.push({ type:'spacer' });
-  for (let i=0;i<base.length;i++){
-    list.push({ type:'entry', rank: i+1, name: base[i].name, score: base[i].score });
+  if (!base || base.length === 0){
+    list.push({ type:'entry', rank: 1, name: 'Aucun', score: 0, empty:true });
+  } else {
+    for (let i=0;i<base.length;i++){
+      list.push({ type:'entry', rank: i+1, name: base[i].name, score: base[i].score });
+    }
   }
   list.push({ type:'spacer' });
   list.push({ type:'spacer' });
@@ -721,32 +708,43 @@ function renderHighScoreTicker(ts){
     } else if (item.type === 'spacer'){
       // rien
     } else if (item.type === 'entry'){
-      c.font = '900 20px ' + MENU_FONT;
-      c.textAlign = 'left'; c.textBaseline = 'middle';
+      if (item.empty){
+        c.font = '900 18px ' + MENU_FONT;
+        c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.strokeStyle = 'rgba(0,0,0,0.65)'; c.lineWidth = 5;
+        c.strokeText('Aucun score enregistré', cx, y);
+        c.fillStyle = '#eaf3ff';
+        c.fillText('Aucun score enregistré', cx, y);
+      } else {
+        c.font = '900 20px ' + MENU_FONT;
+        c.textAlign = 'left'; c.textBaseline = 'middle';
 
-      const rankStr = (item.rank<10? '0':'') + item.rank + '.';
-      const leftX = 26;
-      c.lineWidth = 5; c.strokeStyle = 'rgba(0,0,0,0.65)';
-      c.strokeText(rankStr, leftX, y);
-      c.fillStyle = '#eaf3ff';
-      c.fillText(rankStr, leftX, y);
+        const rankStr = (item.rank<10? '0':'') + item.rank + '.';
+        const leftX = 26;
+        c.lineWidth = 5; c.strokeStyle = 'rgba(0,0,0,0.65)';
+        c.strokeText(rankStr, leftX, y);
+        c.fillStyle = '#eaf3ff';
+        c.fillText(rankStr, leftX, y);
 
-      const nameX = leftX + 56;
-      c.strokeText(item.name, nameX, y);
-      c.fillText(item.name, nameX, y);
+        const nameX = leftX + 56;
+        c.strokeText(item.name, nameX, y);
+        c.fillText(item.name, nameX, y);
 
-      c.textAlign = 'right';
-      c.font = '700 20px ' + HUD_NUM_FONT;
-      const scoreStr = item.score.toString().padStart(4,' ');
-      c.strokeText(scoreStr, W - 24, y);
-      c.fillText(scoreStr, W - 24, y);
+        c.textAlign = 'right';
+        c.font = '700 20px ' + HUD_NUM_FONT;
+        const scoreStr = item.score.toString().padStart(4,' ');
+        c.strokeText(scoreStr, W - 24, y);
+        c.fillText(scoreStr, W - 24, y);
+      }
     }
 
     y += hsState.rowH;
   }
 }
 
-/* Charger polices (menu + HUD) */
+// ============================================================================
+// Polices
+// ============================================================================
 function ensureHUDFonts(){
   if (document.getElementById('hud-fonts')) return;
   const link = document.createElement('link');
@@ -756,7 +754,9 @@ function ensureHUDFonts(){
   document.head.appendChild(link);
 }
 
-/* Ajout Candice dans la modale si absente */
+// ============================================================================
+// Sélection / cartes / avatar tête
+// ============================================================================
 function ensureCandiceCard() {
   const grid = document.querySelector('.characters');
   if (!grid) return;
@@ -783,21 +783,7 @@ function ensureCandiceCard() {
     selectedCharacter = 'candice';
     const selectLabel = document.getElementById('select-label');
     if (selectLabel) selectLabel.textContent = 'Musicien: Candice';
-    const selBtn = document.getElementById('select-btn');
-    const logo = selBtn ? selBtn.querySelector('.char-btn-logo') : null;
-    if (logo && (logo instanceof HTMLCanvasElement)){
-      const dpr = Math.max(1, window.devicePixelRatio||1);
-      const rect = logo.getBoundingClientRect();
-      logo.width = Math.round(rect.width*dpr); logo.height = Math.round(rect.height*dpr);
-      const c = logo.getContext('2d');
-      c.setTransform(1,0,0,1,0,0); c.scale(dpr,dpr);
-      c.clearRect(0,0,logo.clientWidth,logo.clientHeight);
-      const pat = makeGrassPattern(c);
-      c.save(); c.fillStyle = pat; c.fillRect(0,0,logo.clientWidth,logo.clientHeight); c.restore();
-      c.save(); c.translate(logo.clientWidth/2, logo.clientHeight/2 + 1);
-      drawCandice(c,false,0,0,0);
-      c.restore();
-    }
+    updateCharLogo(); // dessine l’avatar tête
     const modal = document.getElementById('select-modal');
     if (modal){
       modal.setAttribute('aria-hidden','true');
@@ -808,6 +794,232 @@ function ensureCandiceCard() {
   });
 }
 
+// Assure la présence d'un canvas avatar dans le bouton de sélection
+function ensureCharLogoCanvas(){
+  const selectBtn = document.getElementById('select-btn');
+  if (!selectBtn) return null;
+  let logo = selectBtn.querySelector('.char-btn-logo');
+  if (!logo){
+    logo = document.createElement('canvas');
+    logo.className = 'char-btn-logo';
+    logo.width = 72; logo.height = 72;
+    selectBtn.insertBefore(logo, selectBtn.firstChild || null);
+  }
+  return logo;
+}
+
+// Met à jour l’avatar du musicien choisi (tête uniquement)
+function updateCharLogo(){
+  const logo = ensureCharLogoCanvas();
+  if (!logo) return;
+
+  // DPR scaling
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const cssW = Math.round((logo.clientWidth || 72));
+  const cssH = Math.round((logo.clientHeight || 72));
+  logo.style.width = cssW + 'px';
+  logo.style.height = cssH + 'px';
+  logo.width = Math.max(1, Math.round(cssW * dpr));
+  logo.height = Math.max(1, Math.round(cssH * dpr));
+
+  const c = logo.getContext('2d');
+  c.setTransform(1,0,0,1,0,0);
+  c.scale(dpr, dpr);
+
+  // fond: pelouse douce
+  c.clearRect(0,0,cssW,cssH);
+  const pat = makeGrassPattern(c);
+  c.save();
+  c.fillStyle = pat; c.fillRect(0,0,cssW,cssH);
+  c.restore();
+
+  // bord circulaire
+  const cx = cssW/2, cy = cssH/2, R = Math.min(cssW, cssH)/2 - 3;
+  c.save();
+  c.beginPath(); c.arc(cx, cy, R, 0, 2*Math.PI); c.closePath();
+  c.clip();
+
+  // halo
+  const hg = c.createRadialGradient(cx, cy, R*0.1, cx, cy, R);
+  hg.addColorStop(0, 'rgba(255,255,255,0.06)');
+  hg.addColorStop(1, 'rgba(0,0,0,0.18)');
+  c.fillStyle = hg;
+  c.fillRect(cx-R, cy-R, R*2, R*2);
+
+  // Dessin tête (coord locales: tête centrée à (0,0))
+  c.translate(cx, cy + 2);
+  const scale = R / 9.5; // facteur pour bien rentrer la tête/bonnet/chapeau
+  c.scale(scale, scale);
+  drawHeadAvatar(c, selectedCharacter || 'john');
+  c.restore();
+
+  // anneau
+  c.save();
+  c.lineWidth = 2;
+  c.strokeStyle = 'rgba(255,255,255,0.35)';
+  c.beginPath(); c.arc(cx, cy, R, 0, 2*Math.PI); c.stroke();
+  c.restore();
+}
+
+// Dessine uniquement la tête selon le variant
+function drawHeadAvatar(ctx, variant){
+  if (variant==='minik') drawMinikHead(ctx);
+  else if (variant==='amelie') drawAmelieHead(ctx);
+  else if (variant==='candice') drawCandiceHead(ctx);
+  else drawJohnHead(ctx);
+}
+
+// Têtes (coord: tête centrée en (0,0))
+function drawJohnHead(ctx){
+  // tête peau
+  ctx.beginPath(); ctx.arc(0,0,5.2,0,2*Math.PI); ctx.fillStyle="#fbe2b6"; ctx.fill();
+
+  // casquette: bord (ancien -18.5 => -4.5 ici), couronne (ancien -28.5 => -14.5)
+  ctx.beginPath(); ctx.ellipse(0,-4.5,6.4,3.2,0,0,2*Math.PI); ctx.fillStyle="#fff"; ctx.fill();
+
+  ctx.beginPath(); ctx.rect(-4.2,-14.5,8.4,10.5); ctx.fillStyle="#fff"; ctx.fill();
+  // bande
+  ctx.fillStyle = "#111"; ctx.fillRect(-4.2,-8.4,8.4,2.2);
+  ctx.fillStyle = JOHN_ACCENT; ctx.fillRect(-4.2,-14.5,8.4,2.2);
+
+  // petit reflet
+  ctx.fillStyle = "rgba(255,255,255,0.25)";
+  ctx.beginPath(); ctx.arc(-2.2,-1.8,1.2,0,2*Math.PI); ctx.fill();
+}
+
+function drawMinikHead(ctx){
+  // tête
+  ctx.beginPath(); ctx.arc(0,0,6.0,0,2*Math.PI); ctx.fillStyle="#f2d2a9"; ctx.fill();
+
+  // joues
+  ctx.fillStyle = "rgba(255,120,120,0.35)";
+  ctx.beginPath(); ctx.arc(-3.2, 1.5, 2.2, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc( 3.2, 1.5, 2.2, 0, Math.PI*2); ctx.fill();
+
+  // yeux
+  ctx.fillStyle = "#221f1f";
+  ctx.beginPath(); ctx.arc(-2.2, -2.2, 0.9, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc( 2.2, -2.2, 0.9, 0, Math.PI*2); ctx.fill();
+
+  // nez
+  ctx.strokeStyle = "#b9876a"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0,-0.8); ctx.lineTo(0,0.8); ctx.stroke();
+
+  // moustache
+  ctx.strokeStyle = "#1b1616"; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(-0.4,2.6); ctx.quadraticCurveTo(-2.6,3.2,-4.2,2.4); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo( 0.4,2.6); ctx.quadraticCurveTo( 2.6,3.2, 4.2,2.4); ctx.stroke();
+
+  // béret (ellipse au-dessus)
+  ctx.fillStyle = "#eaeaea";
+  ctx.beginPath(); ctx.ellipse(0,-4.5,7.2,3.4,0,0,2*Math.PI); ctx.fill();
+}
+
+function drawAmelieHead(ctx){
+  // tête verdâtre
+  ctx.beginPath(); ctx.arc(0,0,5.6,0,2*Math.PI); ctx.fillStyle="#b4d98e"; ctx.fill();
+
+  // yeux
+  ctx.fillStyle = "#111";
+  ctx.beginPath(); ctx.arc(-2.0,-1.4,0.9,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc( 2.0,-1.4,0.9,0,Math.PI*2); ctx.fill();
+
+  // sourcils
+  ctx.strokeStyle = "#1a1a1a"; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(-3.4,-2.8); ctx.lineTo(-0.6,-2.0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo( 3.4,-2.8); ctx.lineTo( 0.6,-2.0); ctx.stroke();
+
+  // nez long
+  ctx.fillStyle = "#9cc377";
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(4.2,1.8); ctx.lineTo(0.2,1.2); ctx.closePath(); ctx.fill();
+  // verrue
+  ctx.fillStyle = "#2d3a23"; ctx.beginPath(); ctx.arc(2.7,1.9,0.6,0,2*Math.PI); ctx.fill();
+
+  // chapeau: large bord (-18.2 => -3.2), cône (-30.5 => -15.5)
+  ctx.fillStyle = "#1a1a1a";
+  ctx.beginPath(); ctx.ellipse(0,-3.2,10.0,2.8,0,0,2*Math.PI); ctx.fill();
+
+  ctx.fillStyle = "#141414";
+  ctx.beginPath();
+  ctx.moveTo(-6.2, -3.2);
+  ctx.lineTo(0, -15.5);
+  ctx.lineTo(6.2, -3.2);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#6b3fa0";
+  ctx.fillRect(-4.4, -6.2, 8.8, 1.6);
+}
+
+function drawCandiceHead(ctx){
+  // tête
+  ctx.beginPath(); ctx.arc(0,0,5.6,0,2*Math.PI); ctx.fillStyle="#f6dfc8"; ctx.fill();
+
+  // yeux + reflets
+  ctx.fillStyle = "#1a1a1a";
+  ctx.beginPath(); ctx.arc(-2.2,-1.0,1.2,0,2*Math.PI); ctx.fill();
+  ctx.beginPath(); ctx.arc( 2.2,-1.0,1.2,0,2*Math.PI); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.8)";
+  ctx.beginPath(); ctx.arc(-2.6,-1.4,0.4,0,2*Math.PI); ctx.fill();
+  ctx.beginPath(); ctx.arc( 1.8,-1.4,0.4,0,2*Math.PI); ctx.fill();
+
+  // joues + bouche
+  ctx.fillStyle = "rgba(255,120,120,0.35)";
+  ctx.beginPath(); ctx.arc(-3.2, 1.6, 1.9, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc( 3.2, 1.6, 1.9, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = "#d1425b";
+  ctx.beginPath(); ctx.arc(0, 2.0, 0.9, 0, Math.PI*2); ctx.fill();
+
+  // diadème (flocon) vers -6 (ancien -21)
+  ctx.save();
+  ctx.translate(0,-6.0);
+  ctx.strokeStyle = "#dff6ff"; ctx.lineWidth = 1.2;
+  for (let i=0;i<6;i++){
+    ctx.rotate(Math.PI/3);
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.lineTo(0,-4.0);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Grille de cartes (préviews corps entier)
+function drawCharacterPreviews(){
+  const cvs = document.querySelectorAll('.char-canvas');
+  for (let i=0;i<cvs.length;i++){
+    const cv = cvs[i];
+    const dpr = Math.max(1, window.devicePixelRatio||1);
+    const rect = cv.getBoundingClientRect();
+    if (rect.width && rect.height){
+      cv.style.width = rect.width + 'px';
+      cv.style.height = rect.height + 'px';
+      cv.width = Math.round(rect.width * dpr);
+      cv.height = Math.round(rect.height * dpr);
+    }
+    const c=cv.getContext('2d');
+    c.setTransform(1,0,0,1,0,0); c.scale(dpr,dpr);
+    c.clearRect(0,0,cv.clientWidth,cv.clientHeight);
+
+    const pat = makeGrassPattern(c);
+    c.save(); c.fillStyle = pat; c.fillRect(0,0,cv.clientWidth,cv.clientHeight); c.restore();
+
+    c.save();
+    c.translate(cv.clientWidth/2, cv.clientHeight/2);
+    c.scale(1.25,1.25);
+    const parent = cv.parentElement;
+    const who = cv.dataset.char || (parent ? parent.getAttribute('data-char') : null) || 'john';
+    if (who==='minik') drawMinik(c,false,0,0,0);
+    else if (who==='amelie') drawAmelie(c,false,0,0,0);
+    else if (who==='candice') drawCandice(c,false,0,0,0);
+    else drawJohn(c,false,0,0,0);
+    c.restore();
+  }
+}
+
+// ============================================================================
+// Mécanique de jeu
+// ============================================================================
 function getBounds(){ return { left: PAD_LR, right: CANVAS_W - PAD_LR, top: PAD_TOP, bottom: CANVAS_H - PAD_BOTTOM }; }
 function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
 function clampIntoBounds(pos, m){ const b=getBounds(); return { x: clamp(pos.x, b.left+m, b.right-m), y: clamp(pos.y, b.top+m, b.bottom-m) }; }
@@ -1210,7 +1422,7 @@ function update(){
   gameState.lastFrameTS = now;
 }
 
-/* Joystick helpers (deadzone + courbe non-linéaire) */
+/* Joystick helpers */
 function getJoystickBase(){
   const b = getBounds();
   const R = clamp(Math.round(CANVAS_W * 0.12), 40, 56);
@@ -1344,7 +1556,9 @@ function getEventPointFromClient(clientX, clientY){
   return clampIntoBounds({x,y}, 30);
 }
 
-/* Textures pelouse */
+// ============================================================================
+// Textures pelouse
+// ============================================================================
 let grassPattern = null;
 function getGrassPattern(){
   if (grassPattern) return grassPattern;
@@ -1366,7 +1580,9 @@ function makeGrassPattern(context){
   return context.createPattern(off,'repeat');
 }
 
-/* Rendu */
+// ============================================================================
+// Rendu scène
+// ============================================================================
 function render(){
   // Fond
   ctx.fillStyle = getGrassPattern();
@@ -1389,10 +1605,10 @@ function render(){
   // Foule
   drawCrowd();
 
-  // Panneaux "Prod-S Arena" (bas + côtés) – droite à 180°
+  // Panneaux
   drawAdBoards();
 
-  // Zone jaune (slot du joueur)
+  // Zone jaune (slot joueur)
   const iSlot = (gameState? gameState.playerIdx : 12);
   const zoneX = FORMATION[iSlot].x;
   const zoneY = FORMATION[iSlot].y + FOOT_OFFSET * SCALE_PNJ;
@@ -1425,43 +1641,38 @@ function render(){
     drawMusician(ctx, x, y, scale, isPlayer, variant, speed, tNow, i*0.73);
   }
 
-  // HUD (haut) – Niveau et Score uniquement
+  // HUD
   drawCanvasHUD();
 
-  // Alerte HORS ZONE centrale/bas, évite le cercle
+  // Alerte hors zone
   drawOutOfZoneAlert();
 
   // Overlays
   if (gameState && gameState.loseActive) drawLoseOverlay();
   if (gameState && gameState.winActive) drawWinOverlay();
 
-  // Joystick visuel
+  // Joystick
   if (gameState && gameState.running) drawJoystick();
 }
 
-/* Panneaux publicitaires "Prod-S Arena" (bas + côtés) – côté droit texte à 180° */
+/* Panneaux publicitaires */
 function drawAdBoards(){
   const b = getBounds();
   const pad = 4;
   const h = 22;
 
-  // Bas
   const bottomY = Math.min(CANVAS_H - h, b.bottom + pad);
   drawAdStrip(b.left, bottomY, b.right - b.left, h, 'horizontal', "Prod-S Arena");
 
-  // Côté gauche
   const leftX = Math.max(0, b.left - h - pad);
   drawAdStrip(leftX, b.top, h, b.bottom - b.top, 'vertical', "Prod-S Arena", false);
 
-  // Côté droit (texte retourné 180°)
   const rightX = Math.min(CANVAS_W - h, b.right + pad);
   drawAdStrip(rightX, b.top, h, b.bottom - b.top, 'vertical', "Prod-S Arena", true);
 }
-
 function drawAdStrip(x, y, w, h, orientation, label, flip180=false){
   ctx.save();
 
-  // Fond et bord
   roundRect(ctx, x, y, w, h, 6);
   ctx.fillStyle = colors.adBg;
   ctx.fill();
@@ -1469,13 +1680,11 @@ function drawAdStrip(x, y, w, h, orientation, label, flip180=false){
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Clip
   ctx.save();
   ctx.beginPath();
   roundRect(ctx, x, y, w, h, 6);
   ctx.clip();
 
-  // Dégradé subtil
   const grad = orientation==='horizontal'
     ? ctx.createLinearGradient(x, y, x, y+h)
     : ctx.createLinearGradient(x, y, x+w, y);
@@ -1501,13 +1710,12 @@ function drawAdStrip(x, y, w, h, orientation, label, flip180=false){
       ctx.fillText(label, px, baseY);
     }
   } else {
-    // Vertical
     let fontSize = w >= 26 ? 16 : 14;
     ctx.font = '800 ' + fontSize + 'px Poppins, system-ui, sans-serif';
 
     ctx.translate(x + w/2, y + h/2);
     ctx.rotate(-Math.PI/2);
-    if (flip180) ctx.rotate(Math.PI); // retourne de 180° pour le panneau droit
+    if (flip180) ctx.rotate(Math.PI);
 
     const metrics = ctx.measureText(label);
     const step = Math.max(metrics.width + 18, 140);
@@ -1522,16 +1730,17 @@ function drawAdStrip(x, y, w, h, orientation, label, flip180=false){
     }
   }
 
-  ctx.restore(); // clip
+  ctx.restore();
   ctx.restore();
 }
 
-/* Joystick visuel */
+// ============================================================================
+// HUD & Alerte
+// ============================================================================
 function drawJoystick(){
   const jb = getJoystickBase();
   const J = gameState.joy;
 
-  // Base
   ctx.save();
   ctx.globalAlpha = 0.85;
   ctx.beginPath();
@@ -1546,7 +1755,6 @@ function drawJoystick(){
   ctx.strokeStyle = 'rgba(255,255,255,0.15)';
   ctx.stroke();
 
-  // Knob
   const kx = jb.x + (J.dx || 0) * jb.r * 0.6;
   const ky = jb.y + (J.dy || 0) * jb.r * 0.6;
   ctx.beginPath();
@@ -1563,7 +1771,6 @@ function drawJoystick(){
   ctx.restore();
 }
 
-/* HUD (zone public haut) – Niveau et Score uniquement */
 function drawCanvasHUD() {
   if (!gameState) return;
   const b = getBounds();
@@ -1623,37 +1830,31 @@ function drawCanvasHUD() {
   ctx.restore();
 }
 
-/* Alerte HORS ZONE – ne couvre jamais le cercle; si cercle centré, position bas; compte à rebours */
 function drawOutOfZoneAlert(){
   if (!gameState) return;
   const now = performance.now();
   if (now < gameState.graceUntil) return;
   if (isPlayerInZone()) return;
 
-  // Position cible du cercle jaune
   const idx = gameState.playerIdx;
   const zoneX = FORMATION[idx].x;
   const zoneY = FORMATION[idx].y + FOOT_OFFSET * SCALE_PNJ;
   const R = ZONE_RADIUS;
 
-  // Dimensions du popup
   const titleSize = Math.round(Math.min(44, CANVAS_W * 0.12));
   const timeSize = Math.round(Math.min(36, CANVAS_W * 0.10));
   const boxW = Math.min(CANVAS_W - 40, 12 + Math.max(240, CANVAS_W * 0.70));
   const boxH = titleSize + timeSize + 38;
 
-  // Choix position: centre par défaut
   let rx = CANVAS_W/2 - boxW/2;
   let ry = CANVAS_H/2 - boxH/2;
 
-  // Si le cercle est proche du centre, placer le popup en bas
   const distToCenter = Math.hypot(zoneX - CANVAS_W/2, zoneY - CANVAS_H/2);
   const nearCenterThresh = Math.min(CANVAS_W, CANVAS_H) * 0.12;
   if (distToCenter <= nearCenterThresh){
     ry = CANVAS_H - boxH - 20;
   }
 
-  // Si le popup recouvre le cercle, déplacer au-dessus/au-dessous selon la position du cercle
   if (circleIntersectsRect(zoneX, zoneY, R, rx, ry, boxW, boxH)) {
     if (zoneY < CANVAS_H/2){
       ry = CANVAS_H - boxH - 20;
@@ -1669,23 +1870,19 @@ function drawOutOfZoneAlert(){
     }
   }
 
-  // Compte à rebours (restant)
   const remainingMs = Math.max(0, MAX_OUT_ZONE_MS - (gameState.player.outZoneMs || 0));
   const secs = (remainingMs / 1000).toFixed(2) + ' s';
 
-  // Clignotement
   const pulse = 0.5 + 0.5 * Math.sin(now * 0.012);
   const alpha = 0.25 + 0.45 * pulse;
 
   const cx = rx + boxW/2;
 
   ctx.save();
-  // Halo
   ctx.globalAlpha = alpha * 0.9;
   ctx.fillStyle = 'rgba(255,80,80,0.22)';
   ctx.beginPath(); ctx.ellipse(rx + boxW/2, ry + boxH/2, boxW*0.60, boxH*0.85, 0, 0, 2*Math.PI); ctx.fill();
 
-  // Carte
   ctx.globalAlpha = 1;
   ctx.beginPath();
   roundRect(ctx, rx, ry, boxW, boxH, 14);
@@ -1699,7 +1896,6 @@ function drawOutOfZoneAlert(){
   ctx.strokeStyle = 'rgba(255,80,80,' + (0.35 + 0.35*pulse).toFixed(3) + ')';
   ctx.stroke();
 
-  // Titre
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = '900 ' + titleSize + 'px ' + HUD_TITLE_FONT;
@@ -1711,7 +1907,6 @@ function drawOutOfZoneAlert(){
   ctx.fillStyle = '#fff4f4';
   ctx.fillText('HORS ZONE', cx, ry + 16 + titleSize/2);
 
-  // Chrono
   ctx.font = '700 ' + timeSize + 'px ' + HUD_NUM_FONT;
   const ty = ry + 16 + titleSize + 10 + timeSize/2;
 
@@ -1733,7 +1928,9 @@ function circleIntersectsRect(cx, cy, r, rx, ry, rw, rh){
   return (dx*dx + dy*dy) <= r*r;
 }
 
-/* Overlays */
+// ============================================================================
+// Overlays victoire/défaite
+// ============================================================================
 function drawLoseOverlay() {
   const b = getBounds();
   const fieldW = b.right - b.left;
@@ -1848,7 +2045,9 @@ function drawWinOverlay() {
   ctx.restore();
 }
 
-/* Utilitaires dessin */
+// ============================================================================
+// Dessins foule & persos
+// ============================================================================
 function roundRect(ctx, x, y, w, h, r){
   ctx.beginPath();
   ctx.moveTo(x+r, y);
@@ -1860,7 +2059,6 @@ function roundRect(ctx, x, y, w, h, r){
 }
 function pointInRect(x, y, rect){ return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h; }
 
-/* Foule */
 function drawCrowd(){
   const b=getBounds();
   drawCrowdRegion(0,0,CANVAS_W,b.top,22,20);
@@ -1881,7 +2079,6 @@ function drawCrowdRegion(x0,y0,x1,y1,stepX=18,stepY=18){
   }
 }
 
-/* Anim jambes */
 function computeFootOffsets(speed, time, seed){
   const amp = Math.min(3.5, speed * 0.9);
   if (amp < 0.1) return {left: 0, right: 0};
@@ -1890,7 +2087,6 @@ function computeFootOffsets(speed, time, seed){
   return { left:  amp * s, right: -amp * s };
 }
 
-/* Dessin persos */
 function drawMusician(ctx,x,y,scale=1.2,isPlayer=false,variant='john',speed=0,time=0,seed=0){
   const foot = computeFootOffsets(speed, time, seed);
   ctx.save(); ctx.translate(x,y); ctx.scale(scale,scale);
@@ -1945,49 +2141,33 @@ function baseFeetAndLegs(ctx, footDYLeft=0, footDYRight=0){
 /* John (bleu marine pour PNJ et joueur) */
 function drawJohn(ctx,isPlayer,footDYLeft,footDYRight,seed){
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
-  // Torse/tenue principale
   ctx.beginPath();
   ctx.moveTo(-7.5,-8); ctx.lineTo(-3.2,8); ctx.lineTo(3.2,8); ctx.lineTo(7.5,-8); ctx.lineTo(0,-12.5); ctx.closePath();
   ctx.fillStyle = isPlayer ? JOHN_PLAYER_MAIN : JOHN_NPC_MAIN;
   ctx.fill();
-
-  // Triangle clair poitrine
   ctx.beginPath(); ctx.moveTo(-2.2,-9.5); ctx.lineTo(2.2,-9.5); ctx.lineTo(0,-12.5); ctx.closePath(); ctx.fillStyle="#fff"; ctx.fill();
-
-  // Épaulettes claires
   ctx.beginPath();
   ctx.moveTo(-7.5,-8); ctx.lineTo(-10.5,-3); ctx.lineTo(-7.5,3); ctx.lineTo(-5.5,-6); ctx.closePath();
   ctx.moveTo(7.5,-8); ctx.lineTo(10.5,-3); ctx.lineTo(7.5,3); ctx.lineTo(5.5,-6); ctx.closePath();
   ctx.fillStyle="#fff"; ctx.fill();
 
-  // Tête + casquette
   ctx.beginPath(); ctx.arc(0,-14,5.2,0,2*Math.PI); ctx.fillStyle="#fbe2b6"; ctx.fill();
   ctx.beginPath(); ctx.ellipse(0,-18.5,6.4,3.2,0,0,2*Math.PI); ctx.fillStyle="#fff"; ctx.fill();
   ctx.beginPath(); ctx.rect(-4.2,-28.5,8.4,10.5); ctx.fillStyle="#fff"; ctx.fill();
   ctx.fillStyle="#111"; ctx.fillRect(-4.2,-22.4,8.4,2.2);
-
-  // Bandeau (marine)
-  ctx.fillStyle = JOHN_ACCENT;
-  ctx.fillRect(-4.2,-28.5,8.4,2.2);
-
-  // Liseré vertical
+  ctx.fillStyle = JOHN_ACCENT; ctx.fillRect(-4.2,-28.5,8.4,2.2);
   ctx.fillStyle="#fff"; ctx.fillRect(-1.2,-5,2.4,9.5);
 
-  // John conserve la trompette
   drawTrumpetFront(ctx);
 }
 
-/* Minik (pas de trompette, visage joufflu moustachu) – vêtement toujours bleu */
 function drawMinik(ctx,isPlayer,footDYLeft,footDYRight,seed){
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
-  // Corps (toujours bleu pendant le jeu)
   ctx.beginPath(); ctx.moveTo(-10,-6); ctx.quadraticCurveTo(-14,4,-6,10); ctx.lineTo(6,10); ctx.quadraticCurveTo(14,4,10,-6); ctx.lineTo(0,-14); ctx.closePath();
   ctx.fillStyle = "#2a63d4"; ctx.fill();
 
-  // Tête
   ctx.beginPath(); ctx.arc(0,-15,6.0,0,2*Math.PI); ctx.fillStyle="#f2d2a9"; ctx.fill();
 
-  // Visage joufflu + moustache
   ctx.fillStyle = "rgba(255,120,120,0.35)";
   ctx.beginPath(); ctx.arc(-3.2, -13.5, 2.2, 0, Math.PI*2); ctx.fill();
   ctx.beginPath(); ctx.arc( 3.2, -13.5, 2.2, 0, Math.PI*2); ctx.fill();
@@ -2005,27 +2185,20 @@ function drawMinik(ctx,isPlayer,footDYLeft,footDYRight,seed){
 
   ctx.fillStyle = "#eaeaea";
   ctx.beginPath(); ctx.ellipse(0,-19.5,7.2,3.4,0,0,2*Math.PI); ctx.fill();
-
-  // Pas de trompette pour Minik
 }
 
-/* Amélie (sorcière à chapeau pointu, pas de trompette) – robe toujours orange */
 function drawAmelie(ctx,isPlayer,footDYLeft,footDYRight,seed){
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
-  // Corps (toujours orange)
   ctx.beginPath(); ctx.moveTo(-8,-6); ctx.lineTo(-12,8); ctx.lineTo(12,8); ctx.lineTo(8,-6); ctx.lineTo(0,-12); ctx.closePath();
   ctx.fillStyle = "#ff7f1f"; ctx.fill();
 
-  // Tête (sorcière, peau verdâtre)
   ctx.beginPath(); ctx.arc(0,-15,5.6,0,2*Math.PI); ctx.fillStyle="#b4d98e"; ctx.fill();
 
-  // Nez long + verrue
   ctx.fillStyle = "#9cc377";
   ctx.beginPath(); ctx.moveTo(0,-15); ctx.lineTo(4.2,-13.2); ctx.lineTo(0.2,-13.8); ctx.closePath(); ctx.fill();
   ctx.fillStyle = "#2d3a23";
   ctx.beginPath(); ctx.arc(2.7, -13.1, 0.6, 0, 2*Math.PI); ctx.fill();
 
-  // Yeux & sourcils
   ctx.fillStyle = "#111";
   ctx.beginPath(); ctx.arc(-2.0, -16.4, 0.9, 0, Math.PI*2); ctx.fill();
   ctx.beginPath(); ctx.arc( 2.0, -16.4, 0.9, 0, Math.PI*2); ctx.fill();
@@ -2034,13 +2207,12 @@ function drawAmelie(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.beginPath(); ctx.moveTo(-3.4,-17.8); ctx.lineTo(-0.6,-17.0); ctx.stroke();
   ctx.beginPath(); ctx.moveTo( 3.4,-17.8); ctx.lineTo( 0.6,-17.0); ctx.stroke();
 
-  // Bouche
   ctx.strokeStyle = "#5a1122"; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(-1.6,-12.8); ctx.lineTo(1.6,-12.8); ctx.stroke();
 
-  // Chapeau
   ctx.fillStyle = "#1a1a1a";
   ctx.beginPath(); ctx.ellipse(0,-18.2,10.0,2.8,0,0,Math.PI*2); ctx.fill();
+
   ctx.fillStyle = "#141414";
   ctx.beginPath();
   ctx.moveTo(-6.2, -18.2);
@@ -2048,14 +2220,13 @@ function drawAmelie(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.lineTo(6.2, -18.2);
   ctx.closePath();
   ctx.fill();
+
   ctx.fillStyle = "#6b3fa0";
   ctx.fillRect(-4.4, -21.2, 8.8, 1.6);
 }
 
-/* Candice (poupée) */
 function drawCandice(ctx,isPlayer,footDYLeft,footDYRight,seed){
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
-  // Robe glacée
   const grdDress = ctx.createLinearGradient(0,-14, 0, 10);
   grdDress.addColorStop(0, isPlayer ? "#bfe9ff" : "#9ad7ff");
   grdDress.addColorStop(1, isPlayer ? "#79b9ff" : "#5aa7f0");
@@ -2069,9 +2240,7 @@ function drawCandice(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.fillStyle = grdDress;
   ctx.fill();
 
-  // Cape translucide
-  ctx.beginPath();
-  ctx.moveTo(-8,-8);
+  ctx.beginPath(); ctx.moveTo(-8,-8);
   ctx.quadraticCurveTo(-14,-2,-10,8);
   ctx.lineTo(10,8);
   ctx.quadraticCurveTo(14,-2,8,-8);
@@ -2079,10 +2248,8 @@ function drawCandice(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.fillStyle = "rgba(180,220,255,0.25)";
   ctx.fill();
 
-  // Tête (poupée)
   ctx.beginPath(); ctx.arc(0,-15,5.6,0,2*Math.PI); ctx.fillStyle="#f6dfc8"; ctx.fill();
 
-  // Yeux ronds + reflets
   ctx.fillStyle = "#1a1a1a";
   ctx.beginPath(); ctx.arc(-2.2, -16.0, 1.2, 0, Math.PI*2); ctx.fill();
   ctx.beginPath(); ctx.arc( 2.2, -16.0, 1.2, 0, Math.PI*2); ctx.fill();
@@ -2090,14 +2257,12 @@ function drawCandice(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.beginPath(); ctx.arc(-2.6, -16.4, 0.4, 0, Math.PI*2); ctx.fill();
   ctx.beginPath(); ctx.arc( 1.8, -16.4, 0.4, 0, Math.PI*2); ctx.fill();
 
-  // Joues + bouche
   ctx.fillStyle = "rgba(255,120,120,0.35)";
   ctx.beginPath(); ctx.arc(-3.2, -13.4, 1.9, 0, Math.PI*2); ctx.fill();
   ctx.beginPath(); ctx.arc( 3.2, -13.4, 1.9, 0, Math.PI*2); ctx.fill();
   ctx.fillStyle = "#d1425b";
   ctx.beginPath(); ctx.arc(0, -13.0, 0.9, 0, Math.PI*2); ctx.fill();
 
-  // Diadème flocon discret
   ctx.save();
   ctx.translate(0,-21.0);
   ctx.strokeStyle = isPlayer ? "#dff6ff" : "#cfefff";
@@ -2111,45 +2276,13 @@ function drawCandice(ctx,isPlayer,footDYLeft,footDYRight,seed){
   }
   ctx.restore();
 
-  // Liseré central clair
   ctx.fillStyle = "rgba(255,255,255,0.85)";
   ctx.fillRect(-1.0,-5.5,2.0,10);
 }
 
-/* Aperçus – canvases DPR aware (net) */
-function drawCharacterPreviews(){
-  const cvs = document.querySelectorAll('.char-canvas');
-  for (let i=0;i<cvs.length;i++){
-    const cv = cvs[i];
-    const dpr = Math.max(1, window.devicePixelRatio||1);
-    const rect = cv.getBoundingClientRect();
-    if (rect.width && rect.height){
-      cv.style.width = rect.width + 'px';
-      cv.style.height = rect.height + 'px';
-      cv.width = Math.round(rect.width * dpr);
-      cv.height = Math.round(rect.height * dpr);
-    }
-    const c=cv.getContext('2d');
-    c.setTransform(1,0,0,1,0,0); c.scale(dpr,dpr);
-    c.clearRect(0,0,cv.clientWidth,cv.clientHeight);
-
-    const pat = makeGrassPattern(c);
-    c.save(); c.fillStyle = pat; c.fillRect(0,0,cv.clientWidth,cv.clientHeight); c.restore();
-
-    c.save();
-    c.translate(cv.clientWidth/2, cv.clientHeight/2);
-    c.scale(1.25,1.25);
-    const parent = cv.parentElement;
-    const who = cv.dataset.char || (parent ? parent.getAttribute('data-char') : null) || 'john';
-    if (who==='minik') drawMinik(c,false,0,0,0);
-    else if (who==='amelie') drawAmelie(c,false,0,0,0);
-    else if (who==='candice') drawCandice(c,false,0,0,0);
-    else drawJohn(c,false,0,0,0);
-    c.restore();
-  }
-}
-
-/* Zone via les pieds */
+// ============================================================================
+// Logique fin de partie / sauvegarde score
+// ============================================================================
 function isPlayerInZone(){
   const idx = gameState.playerIdx;
   const zoneX = FORMATION[idx].x;
@@ -2193,6 +2326,7 @@ function winGame(){
   try { if (musicAudio) musicAudio.pause(); } catch(_){}
 }
 
+// Ajout sauvegarde + rafraîchissement High Score live
 function persistEndOfGameScore(didWin){
   if (!gameState) return;
   const score = Math.floor((gameState.scoreTicks || 0) / 100);
@@ -2205,6 +2339,20 @@ function persistEndOfGameScore(didWin){
     win: !!didWin
   };
   saveHighScoreLocally(entry);
+
+  // Evénement pour MAJ live de la fenêtre High Score si ouverte
+  try {
+    if (window && window.dispatchEvent) {
+      const ev = new CustomEvent('jpm:score-saved', { detail: entry });
+      window.dispatchEvent(ev);
+    }
+  } catch(_) {}
+  if (hsState && hsState.visible) {
+    hsState.entries = buildHighScoreTickerList(loadHighScores());
+    hsState.offset = 0;
+  }
+
+  // Optionnel: pousser au repo si token fourni
   trySaveScoreToRepo(entry);
 }
 
@@ -2241,7 +2389,7 @@ async function trySaveScoreToRepo(entry){
     });
     if (!res.ok && res.status === 409){
       const altPath = `saves/save-${safeTs}-${Math.random().toString(36).slice(2,6)}.json`;
-      const res2 = await fetch(`https://api.github.com/repos/${repo}/contents/${encodeURIComponent(altPath)}`, {
+      await fetch(`https://api.github.com/repos/${repo}/contents/${encodeURIComponent(altPath)}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -2250,7 +2398,6 @@ async function trySaveScoreToRepo(entry){
         },
         body: JSON.stringify({ ...payload, message: `Save (alt) score ${entry.score} at ${entry.dateISO}` })
       });
-      // ignore errors
     }
   } catch(_){}
 }
