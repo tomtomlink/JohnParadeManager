@@ -102,6 +102,18 @@ body{
   box-shadow: 0 14px 28px var(--btn2-glow), inset 0 1px 0 rgba(255,255,255,0.4);
 }
 
+/* Logo du musicien choisi dans le bouton */
+.char-btn-logo {
+  width: 28px;
+  height: 28px;
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 8px;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: 0 2px 7px rgba(0,0,0,0.13);
+}
+
 /* Conteneur jeu */
 #game-container{
   position:absolute; inset:0; display:none;
