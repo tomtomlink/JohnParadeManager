@@ -1,4 +1,4 @@
-// John Parade Manager – menus corrigés: Sélection masque le menu, retour auto avec logo choisi, Jouer OK
+// John Parade Manager – chorégraphies rework + fin niveau 10 avec message de félicitations et retour menu
 
 let CANVAS_W = 360, CANVAS_H = 640;
 
@@ -56,7 +56,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // miniature musicien
     c.save();
     c.translate(charLogo.width/2, charLogo.height/2 + 1);
-    const scale = charLogo.width / 100;
+    const scale = charLogo.width / 100; // approx
     c.scale(scale, scale);
     if (selectedCharacter==='minik') drawMinik(c,false);
     else if (selectedCharacter==='amelie') drawAmelie(c,false);
@@ -177,7 +177,9 @@ function startGame(){
 
     graceUntil: performance.now() + 3000, // 3s
     loseActive: false,
-    loseBtnRect: {x:0,y:0,w:0,h:0}
+    winActive: false,
+    loseBtnRect: {x:0,y:0,w:0,h:0},
+    winBtnRect: {x:0,y:0,w:0,h:0}
   };
 
   if (musicAudio && musicAudio.paused) { musicAudio.currentTime = 0; musicAudio.play().catch(()=>{}); }
@@ -186,13 +188,24 @@ function startGame(){
   gameState.moveFrom = FORMATION.map(p=>({...p}));
   setStepTargets(0);
 
+  attachInputs();
+
+  requestAnimationFrame(gameLoop);
+}
+
+function attachInputs(){
   canvas.addEventListener('pointerdown', onPointerDown, {passive:false});
   canvas.addEventListener('pointermove', onPointerMove, {passive:true});
   canvas.addEventListener('pointerup', onPointerUp, {passive:false});
   canvas.addEventListener('pointercancel', onPointerUp, {passive:false});
   canvas.addEventListener('pointerleave', onPointerUp, {passive:false});
-
-  requestAnimationFrame(gameLoop);
+}
+function detachInputs(){
+  canvas.removeEventListener('pointerdown', onPointerDown);
+  canvas.removeEventListener('pointermove', onPointerMove);
+  canvas.removeEventListener('pointerup', onPointerUp);
+  canvas.removeEventListener('pointercancel', onPointerUp);
+  canvas.removeEventListener('pointerleave', onPointerUp);
 }
 
 function initFormation(){
@@ -211,11 +224,22 @@ function initFormation(){
 }
 
 function initLevel(level){
-  const endPositions = getLevelFinalShapePositions(level);
-  const steps = Math.max(16, 10 + level * 4);
+  // Durée de pas selon niveau
   const SPEEDUP = 0.68;
+  const stepsTotal = Math.max(16, 10 + level * 4);
   gameState.moveDuration = Math.max(220, MOVE_DURATION_BASE * Math.pow(SPEEDUP, level-1));
-  gameState.moves = buildSmoothPathMoves(FORMATION.map(p=>({...p})), endPositions, steps, level);
+
+  const startPositions = FORMATION.map(p=>({...p}));
+  const interPositions = getIntermediateLinePositions(level);
+  const endPositions = getLevelFinalShapePositions(level);
+
+  const steps1 = Math.max(6, Math.round(stepsTotal * 0.5));
+  const steps2 = Math.max(6, stepsTotal - steps1);
+
+  const path1 = buildSmoothPathMoves(startPositions, interPositions, steps1, level);
+  const path2 = buildSmoothPathMoves(interPositions, endPositions, steps2, level);
+
+  gameState.moves = path1.concat(path2);
   gameState.currentMove = 0;
   gameState.moveStartTime = performance.now();
 }
@@ -246,6 +270,7 @@ function buildSmoothPathMoves(startPositions, endPositions, steps, level){
     prev = adjusted;
   }
 
+  // Snap exact end
   const last = path[path.length-1];
   for (let i=0; i<MUSICIANS; i++){
     const before = {x: prev[i].x - last[i].dx, y: prev[i].y - last[i].dy};
@@ -283,6 +308,7 @@ function resolveTargets(fromPositions, targetPositions){
   return newPos;
 }
 
+/* Séquences de formes finales par niveau */
 function getLevelFinalShapePositions(level){
   const b=getBounds(), cx=(b.left+b.right)/2, cy=(b.top+b.bottom)/2;
   const w=(b.right-b.left), h=(b.bottom-b.top), r=Math.min(w,h)*.36;
@@ -300,6 +326,61 @@ function getLevelFinalShapePositions(level){
     default:return pointsOnCircle(cx,cy,r, MUSICIANS);
   }
 }
+
+/* Interpositions “en ligne” entre chaque forme */
+function getIntermediateLinePositions(level){
+  // Pattern de 10 niveaux: vertical → 2 lignes → 3 lignes → vertical → ...
+  const pattern = ['vertical','two','three','vertical','two','three','vertical','two','three','vertical'];
+  const kind = pattern[(level-1) % pattern.length];
+  const b=getBounds(), cx=(b.left+b.right)/2, cy=(b.top+b.bottom)/2;
+  const w=(b.right-b.left), h=(b.bottom-b.top);
+
+  if (kind === 'vertical'){
+    // Grande ligne verticale centrée
+    const count = MUSICIANS;
+    const top = b.top + 20, bottom = b.bottom - 20;
+    const stepY = (bottom - top) / (count+1);
+    const pts = [];
+    for (let i=0;i<count;i++){
+      pts.push({x:cx, y: top + stepY*(i+1)});
+    }
+    return pts.map(p=>clampIntoBounds(p, PNJ_RADIUS));
+  } else if (kind === 'two'){
+    // Deux lignes horizontales symétriques
+    const topY = cy - h*0.22;
+    const botY = cy + h*0.22;
+    const nTop = Math.ceil(MUSICIANS/2);
+    const nBot = MUSICIANS - nTop;
+    return [
+      ...lineAcrossWidth(topY, nTop, b),
+      ...lineAcrossWidth(botY, nBot, b)
+    ].map(p=>clampIntoBounds(p, PNJ_RADIUS));
+  } else {
+    // three: trois lignes horizontales symétriques (haut / centre / bas)
+    const off = h*0.2;
+    const yTop = cy - off, yMid = cy, yBot = cy + off;
+    const nTop = Math.floor(MUSICIANS/3);
+    const nMid = Math.ceil(MUSICIANS/3);
+    const nBot = MUSICIANS - nTop - nMid;
+    return [
+      ...lineAcrossWidth(yTop, nTop, b),
+      ...lineAcrossWidth(yMid, nMid, b),
+      ...lineAcrossWidth(yBot, nBot, b)
+    ].map(p=>clampIntoBounds(p, PNJ_RADIUS));
+  }
+}
+function lineAcrossWidth(y, n, b){
+  if (n<=0) return [];
+  const left = b.left + 16, right = b.right - 16;
+  const step = (right - left) / (n+1);
+  const pts = [];
+  for (let i=0;i<n;i++){
+    pts.push({x: left + step*(i+1), y});
+  }
+  return pts;
+}
+
+/* Outils formes */
 function polygonVertices(cx,cy,sides,r,rot=0){ const v=[]; for(let i=0;i<sides;i++){const a=rot+i*2*Math.PI/sides; v.push({x:cx+Math.cos(a)*r,y:cy+Math.sin(a)*r});} v.push(v[0]); return v; }
 function starVertices(cx,cy,innerR,outerR,rot=0,points=5){ const v=[]; for(let i=0;i<points*2;i++){const rr=(i%2===0)?outerR:innerR; const a=rot+i*Math.PI/points; v.push({x:cx+Math.cos(a)*rr,y:cy+Math.sin(a)*rr});} v.push(v[0]); return v; }
 function diamondVertices(cx,cy,r){ return [{x:cx,y:cy-r},{x:cx+r,y:cy},{x:cx,y:cy+r},{x:cx-r,y:cy},{x:cx,y:cy-r}] }
@@ -362,6 +443,7 @@ function update(){
     if (gameState.currentMove >= gameState.moves.length){
       completeLevel();
       if (!gameState.running) return;
+      // Repart de la position atteinte
       gameState.moveFrom = FORMATION.map(p=>({...p}));
       setStepTargets(0);
     } else {
@@ -390,6 +472,7 @@ function update(){
   }
 }
 
+// Input: le joueur suit exactement le curseur
 function onPointerDown(e){
   e.preventDefault?.();
 
@@ -401,6 +484,15 @@ function onPointerDown(e){
     }
     return;
   }
+  if (gameState && gameState.winActive){
+    const pt = getEventPoint(e);
+    if (pointInRect(pt.x, pt.y, gameState.winBtnRect)) {
+      backToMenu();
+      return;
+    }
+    return;
+  }
+
   isDragging = true;
   setPlayerFromEvent(e);
 }
@@ -431,6 +523,7 @@ function getGrassPattern(){
   grassPattern = ctx.createPattern(off,'repeat'); return grassPattern;
 }
 
+/* Pattern pelouse pour les canvases d’aperçu */
 function makeGrassPattern(context){
   const off = document.createElement('canvas'); off.width=96; off.height=96;
   const c = off.getContext('2d');
@@ -442,29 +535,35 @@ function makeGrassPattern(context){
 }
 
 function render(){
+  // Fond pelouse texturé (plein écran canvas)
   ctx.fillStyle = getGrassPattern();
   ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
 
   const b=getBounds();
 
+  // Zones “public” assombries autour du terrain
   ctx.fillStyle='rgba(0,0,0,0.18)';
   ctx.fillRect(0,0,CANVAS_W,b.top);
   ctx.fillRect(0,b.bottom,CANVAS_W,CANVAS_H-b.bottom);
   ctx.fillRect(0,b.top,b.left,b.bottom-b.top);
   ctx.fillRect(b.right,b.top,CANVAS_W-b.right,b.bottom-b.top);
 
+  // Lignes du terrain
   ctx.strokeStyle=colors.line;
   ctx.lineWidth=2;
   ctx.strokeRect(b.left,b.top,b.right-b.left,b.bottom-b.top);
 
+  // Foule
   drawCrowd();
 
+  // Zone jaune (aux pieds du slot du joueur)
   const iSlot = (gameState? gameState.playerIdx : 12);
   const zoneX = FORMATION[iSlot].x;
   const zoneY = FORMATION[iSlot].y + FOOT_OFFSET * SCALE_PNJ;
   ctx.beginPath(); ctx.arc(zoneX, zoneY, ZONE_RADIUS, 0, 2*Math.PI);
   ctx.fillStyle = colors.zone; ctx.fill();
 
+  // Musiciens
   for (let i=0;i<FORMATION.length;i++){
     const isPlayer = (gameState && i===gameState.playerIdx);
     const x = isPlayer ? gameState.player.x : FORMATION[i].x;
@@ -474,13 +573,15 @@ function render(){
     drawMusician(ctx, x, y, scale, isPlayer, variant);
   }
 
+  // HUD canvas (bas du terrain, centré)
   drawCanvasHUD();
 
-  if (gameState && gameState.loseActive) {
-    drawLoseOverlay();
-  }
+  // Écrans d'overlay
+  if (gameState && gameState.loseActive) drawLoseOverlay();
+  if (gameState && gameState.winActive) drawWinOverlay();
 }
 
+// HUD dans le terrain (bas, centré, bold rouge)
 function drawCanvasHUD() {
   if (!gameState) return;
   const b = getBounds();
@@ -508,6 +609,7 @@ function drawCanvasHUD() {
   ctx.restore();
 }
 
+// Écran de défaite dans le canvas + bouton Recommencer
 function drawLoseOverlay() {
   const b = getBounds();
   const fieldW = b.right - b.left;
@@ -564,6 +666,67 @@ function drawLoseOverlay() {
   ctx.restore();
 }
 
+// Écran de victoire + bouton Menu principal
+function drawWinOverlay() {
+  const b = getBounds();
+  const fieldW = b.right - b.left;
+  const fieldH = b.bottom - b.top;
+  const cx = (b.left + b.right) / 2;
+  const cy = (b.top + b.bottom) / 2;
+
+  const cardW = Math.min(360, fieldW * 0.86);
+  const cardH = 180;
+  const cardX = cx - cardW / 2;
+  const cardY = cy - cardH / 2;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(b.left, b.top, fieldW, fieldH);
+
+  roundRect(ctx, cardX, cardY, cardW, cardH, 14);
+  ctx.fillStyle = '#0f1b13';
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '800 18px Poppins, system-ui, sans-serif';
+  ctx.fillStyle = '#2fe38a';
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+  ctx.lineWidth = 4;
+  const msg = "Félicitations !\nCordialement, respectueusement,\net avec bienveillance.";
+  const lines = msg.split('\n');
+  const baseY = cardY + 58;
+  lines.forEach((line, i) => {
+    ctx.strokeText(line, cx, baseY + i*22);
+    ctx.fillText(line, cx, baseY + i*22);
+  });
+
+  const btnW = Math.min(220, cardW - 40);
+  const btnH = 42;
+  const btnX = cx - btnW/2;
+  const btnY = cardY + cardH - btnH - 16;
+
+  roundRect(ctx, btnX, btnY, btnW, btnH, 10);
+  const grad = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH);
+  grad.addColorStop(0, '#71b8ff');
+  grad.addColorStop(1, '#3f86dd');
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.strokeStyle = '#71b8ff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.font = '800 16px Poppins, system-ui, sans-serif';
+  ctx.fillStyle = '#081728';
+  ctx.fillText('Menu principal', cx, btnY + btnH/2);
+
+  gameState.winBtnRect = { x: btnX, y: btnY, w: btnW, h: btnH };
+  ctx.restore();
+}
+
 function roundRect(ctx, x, y, w, h, r){
   ctx.beginPath();
   ctx.moveTo(x+r, y);
@@ -573,8 +736,9 @@ function roundRect(ctx, x, y, w, h, r){
   ctx.arcTo(x,   y,   x+w, y,   r);
   ctx.closePath();
 }
-function pointInRect(x, y, rect){ return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.y; } // not used outside lose overlay
+function pointInRect(x, y, rect){ return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h; }
 
+/* Foule */
 function drawCrowd(){
   const b=getBounds();
   drawCrowdRegion(0,0,CANVAS_W,b.top,22,20);
@@ -595,6 +759,7 @@ function drawCrowdRegion(x0,y0,x1,y1,stepX=18,stepY=18){
   }
 }
 
+/* Dessin persos */
 function drawMusician(ctx,x,y,scale=1.2,isPlayer=false,variant='john'){
   ctx.save(); ctx.translate(x,y); ctx.scale(scale,scale);
   ctx.beginPath(); ctx.ellipse(0,18,9,5,0,0,2*Math.PI); ctx.fillStyle="rgba(0,0,0,0.22)"; ctx.fill();
@@ -654,6 +819,7 @@ function drawAmelie(ctx,isPlayer){
   drawTrumpet(ctx);
 }
 
+/* Aperçus avec pelouse */
 function drawCharacterPreviews(){
   document.querySelectorAll('.char-canvas').forEach(cv=>{
     const c=cv.getContext('2d');
@@ -673,6 +839,7 @@ function drawCharacterPreviews(){
   });
 }
 
+/* Zone via les pieds */
 function isPlayerInZone(){
   const idx = gameState.playerIdx;
   const zoneX = FORMATION[idx].x;
@@ -684,6 +851,12 @@ function isPlayerInZone(){
 }
 
 function completeLevel(){
+  // Si on vient d'achever le niveau 10, afficher la fin
+  if (gameState.level === 10){
+    winGame();
+    return;
+  }
+  // Sinon, passer au niveau suivant
   gameState.level++;
   showBanner("Bravo, on continue la cohésion jusqu'au bout!");
   gameState.player.outZoneMs = 0;
@@ -696,6 +869,23 @@ function endGame(){
   gameState.running = false;
   gameState.loseActive = true;
   if (musicAudio) { try { musicAudio.pause(); } catch(e){} }
+}
+
+function winGame(){
+  gameState.running = false;
+  gameState.winActive = true;
+  if (musicAudio) { try { musicAudio.pause(); } catch(e){} }
+}
+
+function backToMenu(){
+  // Nettoyage et retour au menu principal
+  gameState = null;
+  detachInputs();
+  try { musicAudio && musicAudio.pause(); } catch(e){}
+  try { if (musicAudio) musicAudio.currentTime = 0; } catch(e){}
+
+  document.getElementById('game-container').style.display = 'none';
+  document.getElementById('main-menu').style.display = '';
 }
 
 function restartGame(){ location.reload(); }
