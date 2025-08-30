@@ -761,7 +761,7 @@ function drawLoseOverlay() {
   ctx.fillStyle = '#ff2d2d';
   ctx.strokeStyle = 'rgba(0,0,0,0.6)';
   ctx.lineWidth = 4;
-  const msg = "Raté ! J'hallucine du niveau de l'orchestre.";
+  const msg = "Terrine!";
   ctx.strokeText(msg, cx, cardY + 48);
   ctx.fillText(msg, cx, cardY + 48);
 
