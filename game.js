@@ -1,4 +1,4 @@
-// John Parade Manager – gestion menus: sélection musicien masque le menu principal, retour auto avec logo choisi
+// John Parade Manager – menus corrigés: Sélection masque le menu, retour auto avec logo choisi, Jouer OK
 
 let CANVAS_W = 360, CANVAS_H = 640;
 
@@ -34,36 +34,30 @@ let musicAudio = null;
 let selectedCharacter = 'john';
 let isDragging = false;
 
-window.onload = () => {
+document.addEventListener('DOMContentLoaded', () => {
   canvas = document.getElementById('game-canvas');
   ctx = canvas.getContext('2d', { alpha: false });
 
   const playBtn = document.getElementById('play-btn');
   const selectBtn = document.getElementById('select-btn');
+  const selectLabel = document.getElementById('select-label');
+  const charLogo = selectBtn.querySelector('.char-btn-logo');
   const closeSelect = document.getElementById('close-select');
   const modal = document.getElementById('select-modal');
   const mainMenu = document.getElementById('main-menu');
 
-  // Ajoute un canvas logo dans le bouton sélection si pas déjà présent
-  let charLogo = document.createElement('canvas');
-  charLogo.width = 28; charLogo.height = 28;
-  charLogo.style.verticalAlign = 'middle';
-  charLogo.style.marginRight = '8px';
-  charLogo.style.borderRadius = '7px';
-  charLogo.className = 'char-btn-logo';
-  if (!selectBtn.querySelector('.char-btn-logo')) {
-    selectBtn.prepend(charLogo);
-  }
-
   function updateCharLogo() {
+    if (!charLogo) return;
     const c = charLogo.getContext('2d');
-    c.clearRect(0,0,28,28);
+    c.clearRect(0,0,charLogo.width,charLogo.height);
     // fond pelouse
     const pat = makeGrassPattern(c);
-    c.save(); c.fillStyle = pat; c.fillRect(0,0,28,28); c.restore();
+    c.save(); c.fillStyle = pat; c.fillRect(0,0,charLogo.width,charLogo.height); c.restore();
+    // miniature musicien
     c.save();
-    c.translate(14, 15);
-    c.scale(0.28, 0.28);
+    c.translate(charLogo.width/2, charLogo.height/2 + 1);
+    const scale = charLogo.width / 100; // approx
+    c.scale(scale, scale);
     if (selectedCharacter==='minik') drawMinik(c,false);
     else if (selectedCharacter==='amelie') drawAmelie(c,false);
     else drawJohn(c,false);
@@ -75,24 +69,31 @@ window.onload = () => {
   modal.style.display = 'none';
   drawCharacterPreviews();
 
-  playBtn.onclick = startGame;
+  // Bouton Jouer
+  playBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    startGame();
+  });
 
-  // Quand on clique sur sélection, cache le main-menu et montre la modale
-  selectBtn.addEventListener('click', () => {
+  // Ouvrir sélection: masque le menu principal
+  selectBtn.addEventListener('click', (e) => {
+    e.preventDefault();
     mainMenu.style.display = 'none';
     modal.setAttribute('aria-hidden','false');
     modal.style.display = 'flex';
     drawCharacterPreviews();
   });
 
-  // Fermer la modale = retour au menu principal
-  closeSelect.addEventListener('click', () => {
+  // Fermer la sélection => retour menu principal
+  closeSelect.addEventListener('click', (e) => {
+    e.preventDefault();
     modal.setAttribute('aria-hidden','true');
     modal.style.display = 'none';
     mainMenu.style.display = '';
   });
 
-  modal.addEventListener('click', (e) => { 
+  // Clic en fond de modale => fermer
+  modal.addEventListener('click', (e) => {
     if (e.target === modal) {
       modal.setAttribute('aria-hidden','true');
       modal.style.display='none';
@@ -100,26 +101,26 @@ window.onload = () => {
     }
   });
 
-  // Quand on clique sur un musicien
+  // Choix d'un musicien
   document.querySelectorAll('.char-card').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       selectedCharacter = btn.dataset.char || 'john';
-      // Mets à jour le bouton sélection avec le logo
+      if (selectLabel) {
+        selectLabel.textContent = `Musicien: ${selectedCharacter.charAt(0).toUpperCase()+selectedCharacter.slice(1)}`;
+      }
       updateCharLogo();
-      selectBtn.querySelector('.char-btn-logo').style.display = '';
-      selectBtn.childNodes[selectBtn.childNodes.length-1].nodeValue = `Musicien: ${selectedCharacter.charAt(0).toUpperCase()+selectedCharacter.slice(1)}`;
-      // Ferme la modale et retourne au menu principal
       modal.setAttribute('aria-hidden','true');
       modal.style.display='none';
       mainMenu.style.display = '';
     });
   });
 
-  musicAudio = new Audio('music.mp3'); musicAudio.loop = true;
+  musicAudio = new Audio('music.mp3');
+  musicAudio.loop = true;
 
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
-};
+});
 
 function getBounds(){ return { left: PAD_LR, right: CANVAS_W - PAD_LR, top: PAD_TOP, bottom: CANVAS_H - PAD_BOTTOM }; }
 function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
@@ -318,7 +319,7 @@ function distributeAlongPolyline(verts,count){
 }
 function pointsOnCircle(cx,cy,r,count){ const pts=[]; for(let i=0;i<count;i++){const a=-Math.PI/2+i*2*Math.PI/count; pts.push({x:cx+Math.cos(a)*r, y:cy+Math.sin(a)*r});} return pts.map(p=>clampIntoBounds(p, PNJ_RADIUS)); }
 function grid5x5(cx,cy,size){ const pts=[]; const step=size/4, sx=cx-size/2, sy=cy-size/2; for(let r=0;r<5;r++){for(let c=0;c<5;c++){pts.push({x:sx+c*step,y:sy+r*step});}} return pts.map(p=>clampIntoBounds(p, PNJ_RADIUS)); }
-function plusShape(cx,cy,r){ const pts=[], step=r/4; for(let i=-2;i<=2;i++) pts.push({x:cx,y:cy+i*step}); for(let i=-2;i<=2;i++) if(i!==0) pts.push({x:cx+i*step,y:cy}); while(pts.length<MUSICIANS){const k=pts.length, off=.6+.2*((k%4)-1.5); pts.push({x:cx+off*step,y:cy+off*step});} return pts.slice(0,MUSICIANS).map(p=>clampIntoBounds(p, PNJ_RADIUS)); }
+function plusShape(cx,cy,r){ const pts=[], step=r/4; for(let i=-2;i<=2;i++) pts.push({x:cx,y:cy+i*step}); for(let i=-2;i<=2)i f(i!==0) pts.push({x:cx+i*step,y:cy}); while(pts.length<MUSICIANS){const k=pts.length, off=.6+.2*((k%4)-1.5); pts.push({x:cx+off*step,y:cy+off*step});} return pts.slice(0,MUSICIANS).map(p=>clampIntoBounds(p, PNJ_RADIUS)); }
 function xShape(cx,cy,r){ const pts=[], step=r/4; for(let i=-2;i<=2;i++) pts.push({x:cx+i*step,y:cy+i*step}); for(let i=-2;i<=2;i++) if(i!==0) pts.push({x:cx+i*step,y:cy-i*step}); while(pts.length<MUSICIANS){pts.push({x:cx+(Math.random()*.5-.25)*step,y:cy+(Math.random()*.5-.25)*step});} return pts.slice(0,MUSICIANS).map(p=>clampIntoBounds(p, PNJ_RADIUS)); }
 
 function setStepTargets(stepIdx){
