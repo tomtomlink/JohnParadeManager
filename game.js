@@ -1,7 +1,7 @@
-// John Parade Manager – joystick adouci (deadzone élargie), pubs "Prod-S Arena", HUD haut,
-// 4 persos jouables (Minik joufflu moustachu, Amélie sorcière, Candice poupée; John garde la trompette),
+// John Parade Manager – joystick adouci (deadzone élargie), pubs "Prod-S Arena" (droite texte à 180°), HUD haut modernisé,
+// 4 persos jouables (Minik joufflu moustachu bleu, Amélie sorcière orange à chapeau pointu, Candice poupée; John garde la trompette),
 // Logo image centré (sans fondu) dans un panneau vert transparent ajusté, chorégraphies + fin niveau 10
-// Remplacement des rouges du costume de John (PNJ et joueur) par du bleu marine.
+// John (PNJ et joueur) en bleu marine. Alerte HORS ZONE: compte à rebours 5→0, ne couvre jamais le cercle; si le cercle est centré, popup en bas.
 
 let CANVAS_W = 360, CANVAS_H = 640;
 
@@ -15,7 +15,7 @@ const SCALE_PLAYER = 1.35;
 const SCALE_PNJ = 1.25;
 
 const MOVE_DURATION_BASE = 2000;
-const MAX_OUT_ZONE_MS = 5000;
+const MAX_OUT_ZONE_MS = 5000; // 5 secondes de compte à rebours
 const MIN_DIST = 26;
 
 let PAD_LR = 22;
@@ -36,11 +36,11 @@ const colors = {
   adText: "#e7f0ff"
 };
 
-// Couleurs pour John (remplace le rouge par un bleu marine)
+// Couleurs pour John (remplace le rouge par un bleu marine pour PNJ et joueur)
 const NAVY = "#0b2249"; // bleu marine
-const JOHN_PLAYER_MAIN = "#FFD700"; // John joueur gardait l'or, on conserve
-const JOHN_NPC_MAIN = NAVY;         // John PNJ: bleu marine au lieu de rouge
-const JOHN_ACCENT = NAVY;           // Remplace les accents rouges (ex: bandeau) par bleu marine
+const JOHN_PLAYER_MAIN = NAVY;
+const JOHN_NPC_MAIN = NAVY;
+const JOHN_ACCENT = NAVY;
 
 let canvas, ctx, gameState = null;
 let musicAudio = null;
@@ -57,6 +57,10 @@ const INPUT = { hasPointer: false, hasTouch: false, hasMouse: false };
 // Fichier du logo principal
 const MAIN_LOGO_SRC = 'menu-logo.png'; // met ton image à la racine ou adapte le chemin
 
+// Fonts HUD / Alerte (style militaire moderne)
+const HUD_TITLE_FONT = '"Black Ops One", system-ui, sans-serif';
+const HUD_NUM_FONT = '"Teko", system-ui, sans-serif';
+
 document.addEventListener('DOMContentLoaded', () => {
   canvas = document.getElementById('game-canvas');
   if (!canvas) return;
@@ -68,6 +72,13 @@ document.addEventListener('DOMContentLoaded', () => {
   INPUT.hasTouch = 'ontouchstart' in window || (navigator.maxTouchPoints|0) > 0;
   INPUT.hasMouse = 'onmousedown' in window;
 
+  ensureHUDFonts(); // charge les polices HUD / alerte
+  // UI menu: logo image centré + fond pelouse + suppression du vieux titre
+  ensureMainLogo();
+  setMenuGrassBackground();
+
+  ensureCandiceCard();
+
   const playBtn = document.getElementById('play-btn');
   const selectBtn = document.getElementById('select-btn');
   const selectLabel = document.getElementById('select-label');
@@ -75,12 +86,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const closeSelect = document.getElementById('close-select');
   const modal = document.getElementById('select-modal');
   const mainMenu = document.getElementById('main-menu');
-
-  // UI menu: logo image centré + fond pelouse + suppression du vieux titre
-  ensureMainLogo();
-  setMenuGrassBackground();
-
-  ensureCandiceCard();
 
   function updateCharLogo() {
     if (!charLogo || !(charLogo instanceof HTMLCanvasElement)) return;
@@ -200,7 +205,7 @@ function ensureMainLogo(){
   if (!panel){
     panel = document.createElement('div');
     panel.id = 'menu-panel';
-    mm.insertBefore(panel, mm.firstChild || null);
+    document.getElementById('main-menu').insertBefore(panel, mm.firstChild || null);
   }
 
   // Wrapper du logo
@@ -344,6 +349,16 @@ function setMenuGrassBackground(){
   mm.style.backgroundImage = `url(${off.toDataURL()})`;
 }
 
+/* Charger des polices modernes style militaire pour HUD et alerte */
+function ensureHUDFonts(){
+  if (document.getElementById('hud-fonts')) return;
+  const link = document.createElement('link');
+  link.id = 'hud-fonts';
+  link.rel = 'stylesheet';
+  link.href = 'https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Teko:wght@600;700&display=swap';
+  document.head.appendChild(link);
+}
+
 /* Ajout Candice dans la modale si absente */
 function ensureCandiceCard() {
   const grid = document.querySelector('.characters');
@@ -448,11 +463,12 @@ function startGame(){
     moveFrom: [],
     moveTo: [],
 
-    graceUntil: performance.now() + 3000,
+    graceUntil: performance.now() + 3000, // 3s de grâce
     loseActive: false,
     winActive: false,
     loseBtnRect: {x:0,y:0,w:0,h:0},
     winBtnRect: {x:0,y:0,w:0,h:0},
+    loseMsg: "Terrine!",
 
     prevFormation: [],
     prevPlayer: {x: FORMATION[12].x, y: FORMATION[12].y},
@@ -772,7 +788,7 @@ function update(){
     gameState.player.y = clamped.y;
   }
 
-  // Score
+  // Score et timer hors-zone (compte à rebours 5→0)
   const inGrace = now < gameState.graceUntil;
   if (!inGrace){
     if (isPlayerInZone()){
@@ -780,8 +796,11 @@ function update(){
       gameState.scoreTicks += 1;
     } else {
       gameState.player.outZoneMs += 16;
-      gameState.scoreTicks = Math.max(0, gameState.scoreTicks - 1);
-      if (gameState.player.outZoneMs > MAX_OUT_ZONE_MS) endGame();
+      if (gameState.player.outZoneMs >= MAX_OUT_ZONE_MS) {
+        endGame();
+      } else {
+        gameState.scoreTicks = Math.max(0, gameState.scoreTicks - 1);
+      }
     }
   }
 
@@ -924,6 +943,7 @@ function getEventPointFromClient(clientX, clientY){
   return clampIntoBounds({x,y}, 30);
 }
 
+/* Textures pelouse */
 let grassPattern = null;
 function getGrassPattern(){
   if (grassPattern) return grassPattern;
@@ -945,6 +965,7 @@ function makeGrassPattern(context){
   return context.createPattern(off,'repeat');
 }
 
+/* Rendu */
 function render(){
   // Fond
   ctx.fillStyle = getGrassPattern();
@@ -967,10 +988,10 @@ function render(){
   // Foule
   drawCrowd();
 
-  // Panneaux "Prod-S Arena" (bas + côtés)
+  // Panneaux "Prod-S Arena" (bas + côtés) – droite à 180°
   drawAdBoards();
 
-  // Zone jaune
+  // Zone jaune (slot du joueur)
   const iSlot = (gameState? gameState.playerIdx : 12);
   const zoneX = FORMATION[iSlot].x;
   const zoneY = FORMATION[iSlot].y + FOOT_OFFSET * SCALE_PNJ;
@@ -1003,8 +1024,11 @@ function render(){
     drawMusician(ctx, x, y, scale, isPlayer, variant, speed, tNow, i*0.73);
   }
 
-  // HUD (haut)
+  // HUD (haut) – Niveau et Score uniquement
   drawCanvasHUD();
+
+  // Alerte HORS ZONE centrale/bas, évite le cercle
+  drawOutOfZoneAlert();
 
   // Overlays
   if (gameState && gameState.loseActive) drawLoseOverlay();
@@ -1014,7 +1038,7 @@ function render(){
   if (gameState && gameState.running) drawJoystick();
 }
 
-/* Panneaux publicitaires "Prod-S Arena" (bas + côtés) */
+/* Panneaux publicitaires "Prod-S Arena" (bas + côtés) – côté droit texte à 180° */
 function drawAdBoards(){
   const b = getBounds();
   const pad = 4;
@@ -1024,15 +1048,16 @@ function drawAdBoards(){
   const bottomY = Math.min(CANVAS_H - h, b.bottom + pad);
   drawAdStrip(b.left, bottomY, b.right - b.left, h, 'horizontal', "Prod-S Arena");
 
-  // Côtés
+  // Côté gauche
   const leftX = Math.max(0, b.left - h - pad);
-  drawAdStrip(leftX, b.top, h, b.bottom - b.top, 'vertical', "Prod-S Arena");
+  drawAdStrip(leftX, b.top, h, b.bottom - b.top, 'vertical', "Prod-S Arena", false);
 
+  // Côté droit (texte retourné 180°)
   const rightX = Math.min(CANVAS_W - h, b.right + pad);
-  drawAdStrip(rightX, b.top, h, b.bottom - b.top, 'vertical', "Prod-S Arena");
+  drawAdStrip(rightX, b.top, h, b.bottom - b.top, 'vertical', "Prod-S Arena", true);
 }
 
-function drawAdStrip(x, y, w, h, orientation, label){
+function drawAdStrip(x, y, w, h, orientation, label, flip180=false){
   ctx.save();
 
   // Fond et bord
@@ -1081,6 +1106,7 @@ function drawAdStrip(x, y, w, h, orientation, label){
 
     ctx.translate(x + w/2, y + h/2);
     ctx.rotate(-Math.PI/2);
+    if (flip180) ctx.rotate(Math.PI); // retourne de 180° pour le panneau droit
 
     const metrics = ctx.measureText(label);
     const step = Math.max(metrics.width + 18, 140);
@@ -1099,6 +1125,7 @@ function drawAdStrip(x, y, w, h, orientation, label){
   ctx.restore();
 }
 
+/* Joystick visuel */
 function drawJoystick(){
   const jb = getJoystickBase();
   const J = gameState.joy;
@@ -1135,30 +1162,33 @@ function drawJoystick(){
   ctx.restore();
 }
 
-// HUD (zone public haut)
+/* HUD (zone public haut) – Niveau et Score uniquement, police style militaire */
 function drawCanvasHUD() {
   if (!gameState) return;
   const b = getBounds();
   const cx = (b.left + b.right) / 2;
 
+  // Zone du public: de y = 0 à y = b.top
   const areaTop = 0;
   const areaBottom = b.top;
   const areaH = Math.max(24, areaBottom - areaTop);
 
-  const fontSize = areaH < 48 ? 14 : 16;
-  const lineGap = areaH < 48 ? 14 : 18;
+  // Mise en page
+  const fontSize = areaH < 48 ? 16 : 18;
+  const lineGap = areaH < 48 ? 16 : 22;
   const padY = 6;
 
-  const cardH = padY * 2 + fontSize * 2 + (lineGap - fontSize);
-  const cardW = Math.min(CANVAS_W - 24, 320);
+  const cardH = padY * 2 + fontSize * 2 + (lineGap - fontSize); // deux lignes
+  const cardW = Math.min(CANVAS_W - 24, 340);
   const centerY = areaTop + areaH / 2;
   const cardY = clamp(centerY - cardH / 2, 6, areaBottom - cardH - 6);
   const cardX = cx - cardW / 2;
 
   const displayScore = Math.floor((gameState.scoreTicks || 0) / 100);
-  const line1 = 'Niveau ' + gameState.level + ' - Hors zone: ' + (gameState.player.outZoneMs/1000).toFixed(2) + 's';
+  const line1 = 'Niveau ' + gameState.level;
   const line2 = 'Score: ' + displayScore;
 
+  // Fond semi-transparent
   ctx.save();
   const r = 12;
   ctx.beginPath();
@@ -1168,32 +1198,150 @@ function drawCanvasHUD() {
   ctx.arcTo(cardX, cardY + cardH, cardX, cardY, r);
   ctx.arcTo(cardX, cardY, cardX + cardW, cardY, r);
   ctx.closePath();
-  ctx.fillStyle = 'rgba(15,27,19,0.78)';
+  ctx.fillStyle = 'rgba(9,21,14,0.78)';
   ctx.fill();
   ctx.lineWidth = 2;
-  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.10)';
   ctx.stroke();
 
+  // L1 – titre
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = '800 ' + fontSize + 'px Poppins, system-ui, sans-serif';
-
+  ctx.font = '900 ' + fontSize + 'px ' + HUD_TITLE_FONT;
   const y1 = cardY + padY + fontSize / 2;
-  const y2 = y1 + lineGap;
-
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
   ctx.strokeText(line1, cx, y1);
-  ctx.strokeText(line2, cx, y2);
-
-  ctx.fillStyle = '#ff2d2d';
+  ctx.fillStyle = '#eaf3ff';
   ctx.fillText(line1, cx, y1);
+
+  // L2 – score (police chiffres)
+  ctx.font = '700 ' + fontSize + 'px ' + HUD_NUM_FONT;
+  const y2 = y1 + lineGap;
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.strokeText(line2, cx, y2);
+  ctx.fillStyle = '#eaf3ff';
   ctx.fillText(line2, cx, y2);
 
   ctx.restore();
 }
 
-// Overlays
+/* Alerte centrale HORS ZONE – ne couvre jamais le cercle; si cercle centré, position bas; compte à rebours */
+function drawOutOfZoneAlert(){
+  if (!gameState) return;
+  const now = performance.now();
+  if (now < gameState.graceUntil) return;
+  if (isPlayerInZone()) return;
+
+  // Position cible du cercle jaune (zone de pied du joueur)
+  const idx = gameState.playerIdx;
+  const zoneX = FORMATION[idx].x;
+  const zoneY = FORMATION[idx].y + FOOT_OFFSET * SCALE_PNJ;
+  const R = ZONE_RADIUS;
+
+  // Dimensions du popup
+  const titleSize = Math.round(Math.min(44, CANVAS_W * 0.12));
+  const timeSize = Math.round(Math.min(36, CANVAS_W * 0.10));
+  const boxW = Math.min(CANVAS_W - 40, 12 + Math.max(240, CANVAS_W * 0.70));
+  const boxH = titleSize + timeSize + 38;
+
+  // Choix position: centre par défaut
+  let rx = CANVAS_W/2 - boxW/2;
+  let ry = CANVAS_H/2 - boxH/2;
+
+  // Si le cercle est proche du centre, placer le popup en bas
+  const distToCenter = Math.hypot(zoneX - CANVAS_W/2, zoneY - CANVAS_H/2);
+  const nearCenterThresh = Math.min(CANVAS_W, CANVAS_H) * 0.12;
+  if (distToCenter <= nearCenterThresh){
+    ry = CANVAS_H - boxH - 20;
+  }
+
+  // Si le popup recouvre le cercle, déplacer au-dessus/au-dessous selon la position du cercle
+  if (circleIntersectsRect(zoneX, zoneY, R, rx, ry, boxW, boxH)) {
+    if (zoneY < CANVAS_H/2){
+      // Mettre en bas
+      ry = CANVAS_H - boxH - 20;
+    } else {
+      // Mettre en haut
+      ry = 20;
+    }
+    // Recheck – si toujours collision, pousser juste en dehors du rayon
+    if (circleIntersectsRect(zoneX, zoneY, R, rx, ry, boxW, boxH)){
+      if (ry < CANVAS_H/2){
+        ry = Math.max(20, zoneY - R - boxH - 12);
+      } else {
+        ry = Math.min(CANVAS_H - boxH - 20, zoneY + R + 12);
+      }
+    }
+  }
+
+  // Compte à rebours (restant)
+  const remainingMs = Math.max(0, MAX_OUT_ZONE_MS - (gameState.player.outZoneMs || 0));
+  const secs = (remainingMs / 1000).toFixed(2) + ' s';
+
+  // Clignotement
+  const pulse = 0.5 + 0.5 * Math.sin(now * 0.012);
+  const alpha = 0.25 + 0.45 * pulse;
+
+  const cx = rx + boxW/2;
+
+  ctx.save();
+  // Halo
+  ctx.globalAlpha = alpha * 0.9;
+  ctx.fillStyle = 'rgba(255,80,80,0.22)';
+  ctx.beginPath(); ctx.ellipse(rx + boxW/2, ry + boxH/2, boxW*0.60, boxH*0.85, 0, 0, 2*Math.PI); ctx.fill();
+
+  // Carte
+  ctx.globalAlpha = 1;
+  ctx.beginPath();
+  roundRect(ctx, rx, ry, boxW, boxH, 14);
+  const bgGrad = ctx.createLinearGradient(rx, ry, rx, ry + boxH);
+  bgGrad.addColorStop(0, 'rgba(20,30,25,0.92)');
+  bgGrad.addColorStop(1, 'rgba(15,24,19,0.92)');
+  ctx.fillStyle = bgGrad;
+  ctx.fill();
+
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(255,80,80,' + (0.35 + 0.35*pulse).toFixed(3) + ')';
+  ctx.stroke();
+
+  // Titre
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '900 ' + titleSize + 'px ' + HUD_TITLE_FONT;
+
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+  ctx.strokeText('HORS ZONE', cx, ry + 16 + titleSize/2);
+
+  ctx.fillStyle = '#fff4f4';
+  ctx.fillText('HORS ZONE', cx, ry + 16 + titleSize/2);
+
+  // Chrono
+  ctx.font = '700 ' + timeSize + 'px ' + HUD_NUM_FONT;
+  const ty = ry + 16 + titleSize + 10 + timeSize/2;
+
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+  ctx.strokeText(secs, cx, ty);
+
+  ctx.fillStyle = '#ffe1e1';
+  ctx.fillText(secs, cx, ty);
+
+  ctx.restore();
+}
+
+function circleIntersectsRect(cx, cy, r, rx, ry, rw, rh){
+  // Distance du centre du cercle au rectangle (avec clamp)
+  const nearestX = clamp(cx, rx, rx + rw);
+  const nearestY = clamp(cy, ry, ry + rh);
+  const dx = cx - nearestX;
+  const dy = cy - nearestY;
+  return (dx*dx + dy*dy) <= r*r;
+}
+
+/* Overlays */
 function drawLoseOverlay() {
   const b = getBounds();
   const fieldW = b.right - b.left;
@@ -1218,11 +1366,11 @@ function drawLoseOverlay() {
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = '800 18px Poppins, system-ui, sans-serif';
+  ctx.font = '900 22px ' + HUD_TITLE_FONT;
   ctx.fillStyle = '#ff2d2d';
   ctx.strokeStyle = 'rgba(0,0,0,0.6)';
   ctx.lineWidth = 4;
-  const msg = "T'es une terrine!";
+  const msg = (gameState && gameState.loseMsg) ? gameState.loseMsg : "Terrine!";
   ctx.strokeText(msg, cx, cardY + 48);
   ctx.fillText(msg, cx, cardY + 48);
 
@@ -1241,7 +1389,7 @@ function drawLoseOverlay() {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  ctx.font = '800 16px Poppins, system-ui, sans-serif';
+  ctx.font = '700 16px ' + HUD_NUM_FONT;
   ctx.fillStyle = '#072513';
   ctx.fillText('Recommencer', cx, btnY + btnH/2);
 
@@ -1273,7 +1421,7 @@ function drawWinOverlay() {
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = '800 18px Poppins, system-ui, sans-serif';
+  ctx.font = '900 20px ' + HUD_TITLE_FONT;
   ctx.fillStyle = '#2fe38a';
   ctx.strokeStyle = 'rgba(0,0,0,0.6)';
   ctx.lineWidth = 4;
@@ -1300,7 +1448,7 @@ function drawWinOverlay() {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  ctx.font = '800 16px Poppins, system-ui, sans-serif';
+  ctx.font = '700 16px ' + HUD_NUM_FONT;
   ctx.fillStyle = '#081728';
   ctx.fillText('Menu principal', cx, btnY + btnH/2);
 
@@ -1308,6 +1456,7 @@ function drawWinOverlay() {
   ctx.restore();
 }
 
+/* Utilitaires dessin */
 function roundRect(ctx, x, y, w, h, r){
   ctx.beginPath();
   ctx.moveTo(x+r, y);
@@ -1364,8 +1513,8 @@ function drawMusician(ctx,x,y,scale=1.2,isPlayer=false,variant='john',speed=0,ti
   ctx.restore();
 }
 
+/* Trompette face caméra (pour John) */
 function drawTrumpetFront(ctx){
-  // Pavillon vu de face (disque doré)
   ctx.save();
   const bx = 0, by = -10;
   const rOuter = 5.6, rInner = 3.8;
@@ -1401,12 +1550,13 @@ function baseFeetAndLegs(ctx, footDYLeft=0, footDYRight=0){
   ctx.fillStyle="#111"; ctx.fill();
 }
 
+/* John (bleu marine pour PNJ et joueur) */
 function drawJohn(ctx,isPlayer,footDYLeft,footDYRight,seed){
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
   // Torse/tenue principale
   ctx.beginPath();
   ctx.moveTo(-7.5,-8); ctx.lineTo(-3.2,8); ctx.lineTo(3.2,8); ctx.lineTo(7.5,-8); ctx.lineTo(0,-12.5); ctx.closePath();
-  ctx.fillStyle = isPlayer ? JOHN_PLAYER_MAIN : JOHN_NPC_MAIN; // or (npc) navy
+  ctx.fillStyle = isPlayer ? JOHN_PLAYER_MAIN : JOHN_NPC_MAIN;
   ctx.fill();
 
   // Triangle clair poitrine
@@ -1424,7 +1574,7 @@ function drawJohn(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.beginPath(); ctx.rect(-4.2,-28.5,8.4,10.5); ctx.fillStyle="#fff"; ctx.fill();
   ctx.fillStyle="#111"; ctx.fillRect(-4.2,-22.4,8.4,2.2);
 
-  // Bandeau (remplace rouge par marine)
+  // Bandeau (marine)
   ctx.fillStyle = JOHN_ACCENT;
   ctx.fillRect(-4.2,-28.5,8.4,2.2);
 
@@ -1435,11 +1585,12 @@ function drawJohn(ctx,isPlayer,footDYLeft,footDYRight,seed){
   drawTrumpetFront(ctx);
 }
 
+/* Minik (pas de trompette, visage joufflu moustachu) – vêtement toujours bleu */
 function drawMinik(ctx,isPlayer,footDYLeft,footDYRight,seed){
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
-  // Corps
+  // Corps (toujours bleu pendant le jeu)
   ctx.beginPath(); ctx.moveTo(-10,-6); ctx.quadraticCurveTo(-14,4,-6,10); ctx.lineTo(6,10); ctx.quadraticCurveTo(14,4,10,-6); ctx.lineTo(0,-14); ctx.closePath();
-  ctx.fillStyle = isPlayer ? JOHN_PLAYER_MAIN : "#2a63d4"; ctx.fill(); // garde or si joueur (si sélectionné), sinon bleu
+  ctx.fillStyle = "#2a63d4"; ctx.fill();
 
   // Tête
   ctx.beginPath(); ctx.arc(0,-15,6.0,0,2*Math.PI); ctx.fillStyle="#f2d2a9"; ctx.fill();
@@ -1466,13 +1617,14 @@ function drawMinik(ctx,isPlayer,footDYLeft,footDYRight,seed){
   // Pas de trompette pour Minik
 }
 
+/* Amélie (sorcière à chapeau pointu, pas de trompette) – robe toujours orange */
 function drawAmelie(ctx,isPlayer,footDYLeft,footDYRight,seed){
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
-  // Corps
+  // Corps (toujours orange)
   ctx.beginPath(); ctx.moveTo(-8,-6); ctx.lineTo(-12,8); ctx.lineTo(12,8); ctx.lineTo(8,-6); ctx.lineTo(0,-12); ctx.closePath();
-  ctx.fillStyle = isPlayer ? JOHN_PLAYER_MAIN : "#ff7f1f"; ctx.fill();
+  ctx.fillStyle = "#ff7f1f"; ctx.fill();
 
-  // Tête (sorcière)
+  // Tête (sorcière, peau verdâtre)
   ctx.beginPath(); ctx.arc(0,-15,5.6,0,2*Math.PI); ctx.fillStyle="#b4d98e"; ctx.fill();
 
   // Nez long + verrue
@@ -1494,13 +1646,26 @@ function drawAmelie(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.strokeStyle = "#5a1122"; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(-1.6,-12.8); ctx.lineTo(1.6,-12.8); ctx.stroke();
 
-  // Chapeau bandeau sombre
-  ctx.fillStyle = "#252525";
-  ctx.beginPath(); ctx.ellipse(0,-18,8.5,3.2,0,0,2*Math.PI); ctx.fill();
+  // Chapeau de sorcière pointu
+  // Large bord
+  ctx.fillStyle = "#1a1a1a";
+  ctx.beginPath(); ctx.ellipse(0,-18.2,10.0,2.8,0,0,Math.PI*2); ctx.fill();
+  // Cône
+  ctx.fillStyle = "#141414";
+  ctx.beginPath();
+  ctx.moveTo(-6.2, -18.2);
+  ctx.lineTo(0, -30.5);
+  ctx.lineTo(6.2, -18.2);
+  ctx.closePath();
+  ctx.fill();
+  // Bande colorée
+  ctx.fillStyle = "#6b3fa0";
+  ctx.fillRect(-4.4, -21.2, 8.8, 1.6);
 
   // Pas de trompette pour Amélie
 }
 
+/* Candice (poupée) */
 function drawCandice(ctx,isPlayer,footDYLeft,footDYRight,seed){
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
   // Robe glacée
@@ -1617,6 +1782,9 @@ function completeLevel(){
 function endGame(){
   gameState.running = false;
   gameState.loseActive = true;
+  // Message de défaite aléatoire
+  const choices = ["Terrine!", "10 Jours d'arrêt!", "Réformé!"];
+  gameState.loseMsg = choices[Math.floor(Math.random()*choices.length)];
   try { if (musicAudio) musicAudio.pause(); } catch(_){}
 }
 
