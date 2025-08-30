@@ -1,5 +1,4 @@
-// John Parade Manager – accueil pelouse + boutons modernes + sélection avec fond pelouse
-// HUD et écran de défaite dessinés dans le canvas (terrain), joueur uniquement au curseur avec 3s de grâce
+// John Parade Manager – gestion menus: sélection musicien masque le menu principal, retour auto avec logo choisi
 
 let CANVAS_W = 360, CANVAS_H = 640;
 
@@ -35,6 +34,93 @@ let musicAudio = null;
 let selectedCharacter = 'john';
 let isDragging = false;
 
+window.onload = () => {
+  canvas = document.getElementById('game-canvas');
+  ctx = canvas.getContext('2d', { alpha: false });
+
+  const playBtn = document.getElementById('play-btn');
+  const selectBtn = document.getElementById('select-btn');
+  const closeSelect = document.getElementById('close-select');
+  const modal = document.getElementById('select-modal');
+  const mainMenu = document.getElementById('main-menu');
+
+  // Ajoute un canvas logo dans le bouton sélection si pas déjà présent
+  let charLogo = document.createElement('canvas');
+  charLogo.width = 28; charLogo.height = 28;
+  charLogo.style.verticalAlign = 'middle';
+  charLogo.style.marginRight = '8px';
+  charLogo.style.borderRadius = '7px';
+  charLogo.className = 'char-btn-logo';
+  if (!selectBtn.querySelector('.char-btn-logo')) {
+    selectBtn.prepend(charLogo);
+  }
+
+  function updateCharLogo() {
+    const c = charLogo.getContext('2d');
+    c.clearRect(0,0,28,28);
+    // fond pelouse
+    const pat = makeGrassPattern(c);
+    c.save(); c.fillStyle = pat; c.fillRect(0,0,28,28); c.restore();
+    c.save();
+    c.translate(14, 15);
+    c.scale(0.28, 0.28);
+    if (selectedCharacter==='minik') drawMinik(c,false);
+    else if (selectedCharacter==='amelie') drawAmelie(c,false);
+    else drawJohn(c,false);
+    c.restore();
+  }
+  updateCharLogo();
+
+  modal.setAttribute('aria-hidden','true');
+  modal.style.display = 'none';
+  drawCharacterPreviews();
+
+  playBtn.onclick = startGame;
+
+  // Quand on clique sur sélection, cache le main-menu et montre la modale
+  selectBtn.addEventListener('click', () => {
+    mainMenu.style.display = 'none';
+    modal.setAttribute('aria-hidden','false');
+    modal.style.display = 'flex';
+    drawCharacterPreviews();
+  });
+
+  // Fermer la modale = retour au menu principal
+  closeSelect.addEventListener('click', () => {
+    modal.setAttribute('aria-hidden','true');
+    modal.style.display = 'none';
+    mainMenu.style.display = '';
+  });
+
+  modal.addEventListener('click', (e) => { 
+    if (e.target === modal) {
+      modal.setAttribute('aria-hidden','true');
+      modal.style.display='none';
+      mainMenu.style.display = '';
+    }
+  });
+
+  // Quand on clique sur un musicien
+  document.querySelectorAll('.char-card').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      selectedCharacter = btn.dataset.char || 'john';
+      // Mets à jour le bouton sélection avec le logo
+      updateCharLogo();
+      selectBtn.querySelector('.char-btn-logo').style.display = '';
+      selectBtn.childNodes[selectBtn.childNodes.length-1].nodeValue = `Musicien: ${selectedCharacter.charAt(0).toUpperCase()+selectedCharacter.slice(1)}`;
+      // Ferme la modale et retourne au menu principal
+      modal.setAttribute('aria-hidden','true');
+      modal.style.display='none';
+      mainMenu.style.display = '';
+    });
+  });
+
+  musicAudio = new Audio('music.mp3'); musicAudio.loop = true;
+
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+};
+
 function getBounds(){ return { left: PAD_LR, right: CANVAS_W - PAD_LR, top: PAD_TOP, bottom: CANVAS_H - PAD_BOTTOM }; }
 function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
 function clampIntoBounds(pos, m){ const b=getBounds(); return { x: clamp(pos.x, b.left+m, b.right-m), y: clamp(pos.y, b.top+m, b.bottom-m) }; }
@@ -48,46 +134,6 @@ function showBanner(text, ms=1400){
   b.classList.add('show');
   setTimeout(()=>b.classList.remove('show'), ms);
 }
-
-window.onload = () => {
-  canvas = document.getElementById('game-canvas');
-  ctx = canvas.getContext('2d', { alpha: false });
-
-  const playBtn = document.getElementById('play-btn');
-  const selectBtn = document.getElementById('select-btn');
-  const closeSelect = document.getElementById('close-select');
-  const modal = document.getElementById('select-modal');
-
-  modal.setAttribute('aria-hidden','true');
-  modal.style.display = 'none';
-  drawCharacterPreviews();
-
-  playBtn.onclick = startGame;
-
-  selectBtn.addEventListener('click', () => {
-    modal.setAttribute('aria-hidden','false');
-    modal.style.display = 'flex';
-    drawCharacterPreviews();
-  });
-  closeSelect.addEventListener('click', () => {
-    modal.setAttribute('aria-hidden','true');
-    modal.style.display = 'none';
-  });
-  modal.addEventListener('click', (e) => { if (e.target === modal) { modal.setAttribute('aria-hidden','true'); modal.style.display='none'; }});
-  document.querySelectorAll('.char-card').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      selectedCharacter = btn.dataset.char || 'john';
-      selectBtn.textContent = `Musicien: ${selectedCharacter.charAt(0).toUpperCase()+selectedCharacter.slice(1)}`;
-      modal.setAttribute('aria-hidden','true');
-      modal.style.display='none';
-    });
-  });
-
-  musicAudio = new Audio('music.mp3'); musicAudio.loop = true;
-
-  resizeCanvas();
-  window.addEventListener('resize', resizeCanvas);
-};
 
 function resizeCanvas(){
   const vw = Math.max(320, Math.min(window.innerWidth, 480));
