@@ -56,7 +56,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // miniature musicien
     c.save();
     c.translate(charLogo.width/2, charLogo.height/2 + 1);
-    const scale = charLogo.width / 100; // approx
+    const scale = charLogo.width / 100;
     c.scale(scale, scale);
     if (selectedCharacter==='minik') drawMinik(c,false);
     else if (selectedCharacter==='amelie') drawAmelie(c,false);
@@ -186,7 +186,6 @@ function startGame(){
   gameState.moveFrom = FORMATION.map(p=>({...p}));
   setStepTargets(0);
 
-  // Inputs
   canvas.addEventListener('pointerdown', onPointerDown, {passive:false});
   canvas.addEventListener('pointermove', onPointerMove, {passive:true});
   canvas.addEventListener('pointerup', onPointerUp, {passive:false});
@@ -247,7 +246,6 @@ function buildSmoothPathMoves(startPositions, endPositions, steps, level){
     prev = adjusted;
   }
 
-  // Snap exact end
   const last = path[path.length-1];
   for (let i=0; i<MUSICIANS; i++){
     const before = {x: prev[i].x - last[i].dx, y: prev[i].y - last[i].dy};
@@ -319,8 +317,25 @@ function distributeAlongPolyline(verts,count){
 }
 function pointsOnCircle(cx,cy,r,count){ const pts=[]; for(let i=0;i<count;i++){const a=-Math.PI/2+i*2*Math.PI/count; pts.push({x:cx+Math.cos(a)*r, y:cy+Math.sin(a)*r});} return pts.map(p=>clampIntoBounds(p, PNJ_RADIUS)); }
 function grid5x5(cx,cy,size){ const pts=[]; const step=size/4, sx=cx-size/2, sy=cy-size/2; for(let r=0;r<5;r++){for(let c=0;c<5;c++){pts.push({x:sx+c*step,y:sy+r*step});}} return pts.map(p=>clampIntoBounds(p, PNJ_RADIUS)); }
-function plusShape(cx,cy,r){ const pts=[], step=r/4; for(let i=-2;i<=2;i++) pts.push({x:cx,y:cy+i*step}); for(let i=-2;i<=2)i f(i!==0) pts.push({x:cx+i*step,y:cy}); while(pts.length<MUSICIANS){const k=pts.length, off=.6+.2*((k%4)-1.5); pts.push({x:cx+off*step,y:cy+off*step});} return pts.slice(0,MUSICIANS).map(p=>clampIntoBounds(p, PNJ_RADIUS)); }
-function xShape(cx,cy,r){ const pts=[], step=r/4; for(let i=-2;i<=2;i++) pts.push({x:cx+i*step,y:cy+i*step}); for(let i=-2;i<=2;i++) if(i!==0) pts.push({x:cx+i*step,y:cy-i*step}); while(pts.length<MUSICIANS){pts.push({x:cx+(Math.random()*.5-.25)*step,y:cy+(Math.random()*.5-.25)*step});} return pts.slice(0,MUSICIANS).map(p=>clampIntoBounds(p, PNJ_RADIUS)); }
+function plusShape(cx,cy,r){
+  const pts=[], step=r/4;
+  for(let i=-2;i<=2;i++) pts.push({x:cx,y:cy+i*step});
+  for(let i=-2;i<=2;i++) if(i!==0) pts.push({x:cx+i*step,y:cy});
+  while(pts.length<MUSICIANS){
+    const k=pts.length, off=.6+.2*((k%4)-1.5);
+    pts.push({x:cx+off*step,y:cy+off*step});
+  }
+  return pts.slice(0,MUSICIANS).map(p=>clampIntoBounds(p, PNJ_RADIUS));
+}
+function xShape(cx,cy,r){
+  const pts=[], step=r/4;
+  for(let i=-2;i<=2;i++) pts.push({x:cx+i*step,y:cy+i*step});
+  for(let i=-2;i<=2;i++) if(i!==0) pts.push({x:cx+i*step,y:cy-i*step});
+  while(pts.length<MUSICIANS){
+    pts.push({x:cx+(Math.random()*.5-.25)*step,y:cy+(Math.random()*.5-.25)*step});
+  }
+  return pts.slice(0,MUSICIANS).map(p=>clampIntoBounds(p, PNJ_RADIUS));
+}
 
 function setStepTargets(stepIdx){
   const deltas = gameState.moves[stepIdx];
@@ -375,7 +390,6 @@ function update(){
   }
 }
 
-// Input: le joueur suit exactement le curseur
 function onPointerDown(e){
   e.preventDefault?.();
 
@@ -417,7 +431,6 @@ function getGrassPattern(){
   grassPattern = ctx.createPattern(off,'repeat'); return grassPattern;
 }
 
-/* Pattern pelouse pour les canvases d’aperçu */
 function makeGrassPattern(context){
   const off = document.createElement('canvas'); off.width=96; off.height=96;
   const c = off.getContext('2d');
@@ -429,35 +442,29 @@ function makeGrassPattern(context){
 }
 
 function render(){
-  // Fond pelouse texturé (plein écran canvas)
   ctx.fillStyle = getGrassPattern();
   ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
 
   const b=getBounds();
 
-  // Zones “public” assombries autour du terrain
   ctx.fillStyle='rgba(0,0,0,0.18)';
   ctx.fillRect(0,0,CANVAS_W,b.top);
   ctx.fillRect(0,b.bottom,CANVAS_W,CANVAS_H-b.bottom);
   ctx.fillRect(0,b.top,b.left,b.bottom-b.top);
   ctx.fillRect(b.right,b.top,CANVAS_W-b.right,b.bottom-b.top);
 
-  // Lignes du terrain
   ctx.strokeStyle=colors.line;
   ctx.lineWidth=2;
   ctx.strokeRect(b.left,b.top,b.right-b.left,b.bottom-b.top);
 
-  // Foule
   drawCrowd();
 
-  // Zone jaune (aux pieds du slot du joueur)
   const iSlot = (gameState? gameState.playerIdx : 12);
   const zoneX = FORMATION[iSlot].x;
   const zoneY = FORMATION[iSlot].y + FOOT_OFFSET * SCALE_PNJ;
   ctx.beginPath(); ctx.arc(zoneX, zoneY, ZONE_RADIUS, 0, 2*Math.PI);
   ctx.fillStyle = colors.zone; ctx.fill();
 
-  // Musiciens
   for (let i=0;i<FORMATION.length;i++){
     const isPlayer = (gameState && i===gameState.playerIdx);
     const x = isPlayer ? gameState.player.x : FORMATION[i].x;
@@ -467,16 +474,13 @@ function render(){
     drawMusician(ctx, x, y, scale, isPlayer, variant);
   }
 
-  // HUD canvas (bas du terrain, centré)
   drawCanvasHUD();
 
-  // Écran de défaite au centre du terrain
   if (gameState && gameState.loseActive) {
     drawLoseOverlay();
   }
 }
 
-// HUD dans le terrain (bas, centré, bold rouge)
 function drawCanvasHUD() {
   if (!gameState) return;
   const b = getBounds();
@@ -504,7 +508,6 @@ function drawCanvasHUD() {
   ctx.restore();
 }
 
-// Écran de défaite dans le canvas + bouton Recommencer
 function drawLoseOverlay() {
   const b = getBounds();
   const fieldW = b.right - b.left;
@@ -570,9 +573,8 @@ function roundRect(ctx, x, y, w, h, r){
   ctx.arcTo(x,   y,   x+w, y,   r);
   ctx.closePath();
 }
-function pointInRect(x, y, rect){ return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h; }
+function pointInRect(x, y, rect){ return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.y; } // not used outside lose overlay
 
-/* Foule */
 function drawCrowd(){
   const b=getBounds();
   drawCrowdRegion(0,0,CANVAS_W,b.top,22,20);
@@ -593,7 +595,6 @@ function drawCrowdRegion(x0,y0,x1,y1,stepX=18,stepY=18){
   }
 }
 
-/* Dessin persos */
 function drawMusician(ctx,x,y,scale=1.2,isPlayer=false,variant='john'){
   ctx.save(); ctx.translate(x,y); ctx.scale(scale,scale);
   ctx.beginPath(); ctx.ellipse(0,18,9,5,0,0,2*Math.PI); ctx.fillStyle="rgba(0,0,0,0.22)"; ctx.fill();
@@ -653,7 +654,6 @@ function drawAmelie(ctx,isPlayer){
   drawTrumpet(ctx);
 }
 
-/* Aperçus avec pelouse */
 function drawCharacterPreviews(){
   document.querySelectorAll('.char-canvas').forEach(cv=>{
     const c=cv.getContext('2d');
@@ -673,7 +673,6 @@ function drawCharacterPreviews(){
   });
 }
 
-/* Zone via les pieds */
 function isPlayerInZone(){
   const idx = gameState.playerIdx;
   const zoneX = FORMATION[idx].x;
