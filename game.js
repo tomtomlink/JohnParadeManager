@@ -1,4 +1,7 @@
-// John Parade Manager – démarrage fiable + joystick visible, pubs "Prod-S Arena" (bas + côtés), HUD haut (zone public), Candice, etc.
+// John Parade Manager – joystick adouci (deadzone élargie), pubs "Prod-S Arena", HUD haut,
+// 4 persos jouables (Minik joufflu moustachu, Amélie sorcière, Candice poupée; John garde la trompette),
+// Logo image centré (sans fondu) dans un panneau vert transparent ajusté, chorégraphies + fin niveau 10
+// Remplacement des rouges du costume de John (PNJ et joueur) par du bleu marine.
 
 let CANVAS_W = 360, CANVAS_H = 640;
 
@@ -33,29 +36,36 @@ const colors = {
   adText: "#e7f0ff"
 };
 
+// Couleurs pour John (remplace le rouge par un bleu marine)
+const NAVY = "#0b2249"; // bleu marine
+const JOHN_PLAYER_MAIN = "#FFD700"; // John joueur gardait l'or, on conserve
+const JOHN_NPC_MAIN = NAVY;         // John PNJ: bleu marine au lieu de rouge
+const JOHN_ACCENT = NAVY;           // Remplace les accents rouges (ex: bandeau) par bleu marine
+
 let canvas, ctx, gameState = null;
 let musicAudio = null;
 let selectedCharacter = 'john';
 
-// Joystick
-const PLAYER_SPEED = 220; // px/s
-const JOY_MARGIN = 14;    // marge au bord du terrain
-const INPUT = {
-  hasPointer: false,
-  hasTouch: false,
-  hasMouse: false
-};
+// Joystick (adouci)
+const PLAYER_SPEED = 190; // px/s (sensibilité réduite)
+const JOY_MARGIN = 14;
+const JOY_DEADZONE = 0.22; // zone morte élargie
+const JOY_SENS_POW = 1.35; // courbe non-linéaire (>1 = plus doux près du centre)
+
+const INPUT = { hasPointer: false, hasTouch: false, hasMouse: false };
+
+// Fichier du logo principal
+const MAIN_LOGO_SRC = 'menu-logo.png'; // met ton image à la racine ou adapte le chemin
 
 document.addEventListener('DOMContentLoaded', () => {
   canvas = document.getElementById('game-canvas');
   if (!canvas) return;
   ctx = canvas.getContext('2d', { alpha: false });
-  // Empêcher le scroll/zoom qui bloque les events tactiles
   canvas.style.touchAction = 'none';
   canvas.style.webkitTapHighlightColor = 'transparent';
 
   INPUT.hasPointer = 'onpointerdown' in window;
-  INPUT.hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  INPUT.hasTouch = 'ontouchstart' in window || (navigator.maxTouchPoints|0) > 0;
   INPUT.hasMouse = 'onmousedown' in window;
 
   const playBtn = document.getElementById('play-btn');
@@ -65,6 +75,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const closeSelect = document.getElementById('close-select');
   const modal = document.getElementById('select-modal');
   const mainMenu = document.getElementById('main-menu');
+
+  // UI menu: logo image centré + fond pelouse + suppression du vieux titre
+  ensureMainLogo();
+  setMenuGrassBackground();
 
   ensureCandiceCard();
 
@@ -157,9 +171,180 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch(_) {}
 
   resizeCanvas();
-  window.addEventListener('resize', resizeCanvas);
+  window.addEventListener('resize', () => {
+    resizeCanvas();
+  });
 });
 
+/* MENU: logo image centré (sans fondu) + panneau vert transparent ajusté */
+function ensureMainLogo(){
+  const mm = document.getElementById('main-menu');
+  if (!mm) return;
+
+  // Supprimer tout ancien canvas de titre s'il existe encore
+  const oldCanvas = document.getElementById('title-logo');
+  if (oldCanvas && oldCanvas.parentNode) oldCanvas.parentNode.removeChild(oldCanvas);
+
+  // Supprimer le texte "Edition Tatoo de Merde"
+  removeOffensiveText("Edition Tatoo de Merde");
+
+  // Cacher un éventuel H1 texte "John Parade Manager"
+  const maybeTitles = document.querySelectorAll('h1,h2,.app-title,.title');
+  maybeTitles.forEach(n=>{
+    const t = (n.textContent||'').trim().toLowerCase();
+    if (t.includes('john parade manager')) n.style.display = 'none';
+  });
+
+  // Panneau du menu (zone verte transparente)
+  let panel = document.getElementById('menu-panel');
+  if (!panel){
+    panel = document.createElement('div');
+    panel.id = 'menu-panel';
+    mm.insertBefore(panel, mm.firstChild || null);
+  }
+
+  // Wrapper du logo
+  let wrap = document.getElementById('main-logo-wrap');
+  if (!wrap){
+    wrap = document.createElement('div');
+    wrap.id = 'main-logo-wrap';
+    wrap.className = 'logo-wrap';
+    panel.appendChild(wrap);
+  } else if (!wrap.parentElement || wrap.parentElement.id !== 'menu-panel'){
+    panel.insertBefore(wrap, panel.firstChild || null);
+  }
+
+  // Image du logo
+  let img = document.getElementById('main-logo');
+  if (!img){
+    img = document.createElement('img');
+    img.id = 'main-logo';
+    img.alt = 'John Parade Manager';
+    img.decoding = 'async';
+    img.loading = 'eager';
+    wrap.appendChild(img);
+  }
+  img.src = (typeof MAIN_LOGO_SRC !== 'undefined') ? MAIN_LOGO_SRC : 'menu-logo.png';
+
+  // Zone des boutons (play/select/etc.)
+  let actions = document.getElementById('menu-actions');
+  if (!actions){
+    actions = document.createElement('div');
+    actions.id = 'menu-actions';
+    actions.className = 'menu-actions';
+    panel.appendChild(actions);
+  }
+
+  // Y placer les boutons connus s'ils existent (et ne pas les dupliquer)
+  const play = document.getElementById('play-btn');
+  const select = document.getElementById('select-btn');
+  if (play && play.parentElement !== actions) actions.appendChild(play);
+  if (select && select.parentElement !== actions) actions.appendChild(select);
+
+  // Injecter/mettre à jour le style menu
+  injectMenuLogoStyles();
+}
+function removeOffensiveText(text){
+  if (!text) return;
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+  const targets = [];
+  while (walker.nextNode()){
+    const node = walker.currentNode;
+    if (node.nodeValue && node.nodeValue.includes(text)){
+      targets.push(node);
+    }
+  }
+  targets.forEach(node=>{
+    const el = node.parentElement;
+    if (!el) return;
+    if (el.childNodes.length === 1){
+      el.remove();
+    } else {
+      el.innerHTML = el.innerHTML.replaceAll(text, '');
+    }
+  });
+}
+function injectMenuLogoStyles(){
+  const STYLE_ID = 'menu-logo-style';
+  const prev = document.getElementById(STYLE_ID);
+  if (prev) prev.remove();
+
+  const css = `
+    #main-menu{
+      background-color:#3a7950;
+      background-repeat:repeat;
+      background-size:96px 96px;
+      min-height: 100vh;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 12px;
+      padding: 18px 12px 24px;
+      box-sizing: border-box;
+    }
+    #menu-panel{
+      width: min(88vw, 560px);
+      margin: 10px auto 6px auto;
+      background: rgba(70, 150, 95, 0.26);
+      border: 2px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+      box-shadow: 0 10px 22px rgba(0,0,0,0.22), 0 2px 6px rgba(0,0,0,0.14);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+    }
+    #main-logo-wrap.logo-wrap{
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      display: block;
+    }
+    #main-logo{
+      display: block;
+      width: 100%;
+      height: auto;
+      border: none;
+      -webkit-mask-image: none !important;
+              mask-image: none !important;
+      filter: none !important;
+    }
+    #menu-actions.menu-actions{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: center;
+      align-items: center;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    @media (min-width: 960px){
+      #main-menu{ align-items: center; }
+      #menu-panel{ width: min(56vw, 720px); }
+    }
+  `.trim();
+
+  const style = document.createElement('style');
+  style.id = STYLE_ID;
+  style.textContent = css;
+  document.head.appendChild(style);
+}
+function setMenuGrassBackground(){
+  const mm = document.getElementById('main-menu');
+  if (!mm) return;
+  const off = document.createElement('canvas');
+  off.width = 96; off.height = 96;
+  const c = off.getContext('2d');
+  c.fillStyle='#3a7950'; c.fillRect(0,0,off.width,off.height);
+  c.strokeStyle='rgba(255,255,255,0.05)'; c.lineWidth=1;
+  for(let y=8;y<off.height;y+=12){ c.beginPath(); c.moveTo(0,y); c.lineTo(off.width,y-2); c.stroke(); }
+  for(let i=0;i<450;i++){ const x=Math.random()*off.width, y=Math.random()*off.height, a=.06+Math.random()*.06; c.fillStyle=`rgba(255,255,255,${a})`; c.fillRect(x,y,1,1); }
+  mm.style.backgroundImage = `url(${off.toDataURL()})`;
+}
+
+/* Ajout Candice dans la modale si absente */
 function ensureCandiceCard() {
   const grid = document.querySelector('.characters');
   if (!grid) return;
@@ -182,7 +367,6 @@ function ensureCandiceCard() {
   card.appendChild(name);
   grid.appendChild(card);
 
-  // Sélection Candice
   card.addEventListener('click', function(){
     selectedCharacter = 'candice';
     const selectLabel = document.getElementById('select-label');
@@ -273,11 +457,7 @@ function startGame(){
     prevFormation: [],
     prevPlayer: {x: FORMATION[12].x, y: FORMATION[12].y},
 
-    joy: {
-      active: false,
-      pointerId: null,
-      dx: 0, dy: 0, mag: 0
-    },
+    joy: { active: false, pointerId: null, dx: 0, dy: 0, mag: 0 },
 
     lastFrameTS: performance.now()
   };
@@ -298,30 +478,36 @@ function startGame(){
 }
 
 function attachInputs(){
-  // Pointer Events si dispo
-  if (INPUT.hasPointer){
+  if ('onpointerdown' in window){
     canvas.addEventListener('pointerdown', onPointerDown, {passive:false});
     canvas.addEventListener('pointermove', onPointerMove, {passive:false});
     canvas.addEventListener('pointerup', onPointerUp, {passive:false});
     canvas.addEventListener('pointercancel', onPointerUp, {passive:false});
     canvas.addEventListener('pointerleave', onPointerUp, {passive:false});
-  }
-  // Fallback Touch
-  if (INPUT.hasTouch && !INPUT.hasPointer){
+  } else if ('ontouchstart' in window){
     canvas.addEventListener('touchstart', onTouchStart, {passive:false});
     canvas.addEventListener('touchmove', onTouchMove, {passive:false});
     canvas.addEventListener('touchend', onTouchEnd, {passive:false});
     canvas.addEventListener('touchcancel', onTouchEnd, {passive:false});
-  }
-  // Fallback Mouse
-  if (INPUT.hasMouse && !INPUT.hasPointer){
+  } else {
     canvas.addEventListener('mousedown', onMouseDown, {passive:false});
     window.addEventListener('mousemove', onMouseMove, {passive:false});
     window.addEventListener('mouseup', onMouseUp, {passive:false});
   }
 }
 function detachInputs(){
-  // On ne détaille pas les removes ici pour rester simple
+  canvas.removeEventListener('pointerdown', onPointerDown);
+  canvas.removeEventListener('pointermove', onPointerMove);
+  canvas.removeEventListener('pointerup', onPointerUp);
+  canvas.removeEventListener('pointercancel', onPointerUp);
+  canvas.removeEventListener('pointerleave', onPointerUp);
+  canvas.removeEventListener('touchstart', onTouchStart);
+  canvas.removeEventListener('touchmove', onTouchMove);
+  canvas.removeEventListener('touchend', onTouchEnd);
+  canvas.removeEventListener('touchcancel', onTouchEnd);
+  canvas.removeEventListener('mousedown', onMouseDown);
+  window.removeEventListener('mousemove', onMouseMove);
+  window.removeEventListener('mouseup', onMouseUp);
 }
 
 function initFormation(){
@@ -540,7 +726,6 @@ function gameLoop(){
     if (gameState && gameState.running) update();
     render();
   } catch (err) {
-    // Pour éviter un arrêt silencieux si une petite erreur survient
     console.error('Game loop error:', err);
   }
   requestAnimationFrame(gameLoop);
@@ -577,7 +762,7 @@ function update(){
   // Déplacement du joueur via joystick
   const dtSec = Math.max(0, Math.min(0.05, (now - gameState.lastFrameTS) / 1000));
   const J = gameState.joy;
-  if (J.mag > 0.001){
+  if (J.mag > 0.0001){
     const vx = J.dx * PLAYER_SPEED;
     const vy = J.dy * PLAYER_SPEED;
     const nx = gameState.player.x + vx * dtSec;
@@ -587,7 +772,7 @@ function update(){
     gameState.player.y = clamped.y;
   }
 
-  // Score: up/down à la même vitesse, après la période de grâce
+  // Score
   const inGrace = now < gameState.graceUntil;
   if (!inGrace){
     if (isPlayerInZone()){
@@ -600,13 +785,12 @@ function update(){
     }
   }
 
-  // Mémoriser pour anim jambes
   gameState.prevFormation = FORMATION.map(p=>({...p}));
   gameState.prevPlayer = {x: gameState.player.x, y: gameState.player.y};
   gameState.lastFrameTS = now;
 }
 
-/* Joystick helpers */
+/* Joystick helpers (deadzone + courbe non-linéaire) */
 function getJoystickBase(){
   const b = getBounds();
   const R = clamp(Math.round(CANVAS_W * 0.12), 40, 56);
@@ -616,10 +800,22 @@ function getJoystickBase(){
 }
 function isInCircle(x,y,cx,cy,r){ const dx=x-cx, dy=y-cy; return dx*dx + dy*dy <= r*r; }
 
+function computeJoyFromPoint(px, py){
+  const jb = getJoystickBase();
+  const dx = px - jb.x;
+  const dy = py - jb.y;
+  const dist = Math.hypot(dx,dy) || 1;
+  let mag = Math.min(1, dist / jb.r);
+  if (mag < JOY_DEADZONE) return {dx:0, dy:0, mag:0};
+  const nx = dx / dist, ny = dy / dist;
+  const t = (mag - JOY_DEADZONE) / (1 - JOY_DEADZONE);
+  const eff = Math.pow(t, JOY_SENS_POW);
+  return { dx: nx * eff, dy: ny * eff, mag: eff };
+}
+
 function onPointerDown(e){
   if (e && e.preventDefault) e.preventDefault();
 
-  // Overlays
   if (gameState && gameState.loseActive){
     const pt = getEventPointFromClient(e.clientX, e.clientY);
     if (pointInRect(pt.x, pt.y, gameState.loseBtnRect)) { restartGame(); }
@@ -634,23 +830,19 @@ function onPointerDown(e){
 
   const pt = getEventPointFromClient(e.clientX, e.clientY);
   const jb = getJoystickBase();
-  if (isInCircle(pt.x, pt.y, jb.x, jb.y, jb.r * 1.2)){
-    const dx = pt.x - jb.x;
-    const dy = pt.y - jb.y;
-    const dist = Math.hypot(dx,dy) || 1;
-    const mag = Math.min(1, dist / jb.r);
+  if (isInCircle(pt.x, pt.y, jb.x, jb.y, jb.r * 1.25)){
+    const v = computeJoyFromPoint(pt.x, pt.y);
     gameState.joy.active = true;
     gameState.joy.pointerId = (typeof e.pointerId === 'number') ? e.pointerId : 0;
-    gameState.joy.dx = (dx/dist) * mag;
-    gameState.joy.dy = (dy/dist) * mag;
-    gameState.joy.mag = mag;
+    gameState.joy.dx = v.dx; gameState.joy.dy = v.dy; gameState.joy.mag = v.mag;
   }
 }
 function onPointerMove(e){
   if (!gameState || !gameState.joy.active) return;
   if ((typeof e.pointerId === 'number') && (e.pointerId !== gameState.joy.pointerId)) return;
   const pt = getEventPointFromClient(e.clientX, e.clientY);
-  updateJoystickFromPoint(pt.x, pt.y);
+  const v = computeJoyFromPoint(pt.x, pt.y);
+  gameState.joy.dx = v.dx; gameState.joy.dy = v.dy; gameState.joy.mag = v.mag;
 }
 function onPointerUp(e){
   if (!gameState) return;
@@ -666,7 +858,6 @@ function onTouchStart(e){
   if (e && e.preventDefault) e.preventDefault();
   if (!gameState || !gameState.running) return;
 
-  // Overlays
   if (gameState.loseActive || gameState.winActive){
     const t = e.changedTouches[0];
     const pt = getEventPointFromClient(t.clientX, t.clientY);
@@ -678,16 +869,11 @@ function onTouchStart(e){
   const t = e.touches[0];
   const pt = getEventPointFromClient(t.clientX, t.clientY);
   const jb = getJoystickBase();
-  if (isInCircle(pt.x, pt.y, jb.x, jb.y, jb.r * 1.2)){
-    const dx = pt.x - jb.x;
-    const dy = pt.y - jb.y;
-    const dist = Math.hypot(dx,dy) || 1;
-    const mag = Math.min(1, dist / jb.r);
+  if (isInCircle(pt.x, pt.y, jb.x, jb.y, jb.r * 1.25)){
+    const v = computeJoyFromPoint(pt.x, pt.y);
     gameState.joy.active = true;
-    gameState.joy.pointerId = -1; // touch generic
-    gameState.joy.dx = (dx/dist) * mag;
-    gameState.joy.dy = (dy/dist) * mag;
-    gameState.joy.mag = mag;
+    gameState.joy.pointerId = -1;
+    gameState.joy.dx = v.dx; gameState.joy.dy = v.dy; gameState.joy.mag = v.mag;
   }
 }
 function onTouchMove(e){
@@ -695,7 +881,8 @@ function onTouchMove(e){
   if (!gameState || !gameState.joy.active) return;
   const t = e.touches[0];
   const pt = getEventPointFromClient(t.clientX, t.clientY);
-  updateJoystickFromPoint(pt.x, pt.y);
+  const v = computeJoyFromPoint(pt.x, pt.y);
+  gameState.joy.dx = v.dx; gameState.joy.dy = v.dy; gameState.joy.mag = v.mag;
 }
 function onTouchEnd(e){
   if (!gameState) return;
@@ -710,22 +897,18 @@ function onMouseDown(e){
   if (!gameState || !gameState.running) return;
   const pt = getEventPointFromClient(e.clientX, e.clientY);
   const jb = getJoystickBase();
-  if (isInCircle(pt.x, pt.y, jb.x, jb.y, jb.r * 1.2)){
-    const dx = pt.x - jb.x;
-    const dy = pt.y - jb.y;
-    const dist = Math.hypot(dx,dy) || 1;
-    const mag = Math.min(1, dist / jb.r);
+  if (isInCircle(pt.x, pt.y, jb.x, jb.y, jb.r * 1.25)){
+    const v = computeJoyFromPoint(pt.x, pt.y);
     gameState.joy.active = true;
-    gameState.joy.pointerId = -2; // mouse
-    gameState.joy.dx = (dx/dist) * mag;
-    gameState.joy.dy = (dy/dist) * mag;
-    gameState.joy.mag = mag;
+    gameState.joy.pointerId = -2;
+    gameState.joy.dx = v.dx; gameState.joy.dy = v.dy; gameState.joy.mag = v.mag;
   }
 }
 function onMouseMove(e){
   if (!gameState || !gameState.joy.active) return;
   const pt = getEventPointFromClient(e.clientX, e.clientY);
-  updateJoystickFromPoint(pt.x, pt.y);
+  const v = computeJoyFromPoint(pt.x, pt.y);
+  gameState.joy.dx = v.dx; gameState.joy.dy = v.dy; gameState.joy.mag = v.mag;
 }
 function onMouseUp(e){
   if (!gameState) return;
@@ -740,16 +923,6 @@ function getEventPointFromClient(clientX, clientY){
   const y = clientY - rect.top;
   return clampIntoBounds({x,y}, 30);
 }
-function updateJoystickFromPoint(px, py){
-  const jb = getJoystickBase();
-  const dx = px - jb.x;
-  const dy = py - jb.y;
-  const dist = Math.hypot(dx,dy) || 1;
-  const mag = Math.min(1, dist / jb.r);
-  gameState.joy.dx = (dx/dist) * mag;
-  gameState.joy.dy = (dy/dist) * mag;
-  gameState.joy.mag = mag;
-}
 
 let grassPattern = null;
 function getGrassPattern(){
@@ -759,7 +932,7 @@ function getGrassPattern(){
   c.fillStyle='#3a7950'; c.fillRect(0,0,off.width,off.height);
   c.strokeStyle='rgba(255,255,255,0.05)'; c.lineWidth=1;
   for(let y=8;y<off.height;y+=12){ c.beginPath(); c.moveTo(0,y); c.lineTo(off.width,y-2); c.stroke(); }
-  for(let i=0;i<450;i++){ const x=Math.random()*off.width, y=Math.random()*off.height, a=.06+Math.random()*.06; c.fillStyle='rgba(255,255,255,'+a+')'; c.fillRect(x,y,1,1); }
+  for(let i=0;i<450;i++){ const x=Math.random()*off.width, y=Math.random()*off.height, a=.06+Math.random()*.06; c.fillStyle=`rgba(255,255,255,${a})`; c.fillRect(x,y,1,1); }
   grassPattern = ctx.createPattern(off,'repeat'); return grassPattern;
 }
 function makeGrassPattern(context){
@@ -768,7 +941,7 @@ function makeGrassPattern(context){
   c.fillStyle='#3a7950'; c.fillRect(0,0,off.width,off.height);
   c.strokeStyle='rgba(255,255,255,0.05)'; c.lineWidth=1;
   for(let y=8;y<off.height;y+=12){ c.beginPath(); c.moveTo(0,y); c.lineTo(off.width,y-2); c.stroke(); }
-  for(let i=0;i<450;i++){ const x=Math.random()*off.width, y=Math.random()*off.height, a=.06+Math.random()*.06; c.fillStyle='rgba(255,255,255,'+a+')'; c.fillRect(x,y,1,1); }
+  for(let i=0;i<450;i++){ const x=Math.random()*off.width, y=Math.random()*off.height, a=.06+Math.random()*.06; c.fillStyle=`rgba(255,255,255,${a})`; c.fillRect(x,y,1,1); }
   return context.createPattern(off,'repeat');
 }
 
@@ -794,7 +967,7 @@ function render(){
   // Foule
   drawCrowd();
 
-  // Panneaux de pub (bas + côtés) "Prod-S Arena"
+  // Panneaux "Prod-S Arena" (bas + côtés)
   drawAdBoards();
 
   // Zone jaune
@@ -830,17 +1003,18 @@ function render(){
     drawMusician(ctx, x, y, scale, isPlayer, variant, speed, tNow, i*0.73);
   }
 
-  // HUD en haut (zone public)
+  // HUD (haut)
   drawCanvasHUD();
 
   // Overlays
   if (gameState && gameState.loseActive) drawLoseOverlay();
   if (gameState && gameState.winActive) drawWinOverlay();
 
-  // Joystick visuel (toujours dessiné en jeu)
+  // Joystick visuel
   if (gameState && gameState.running) drawJoystick();
 }
 
+/* Panneaux publicitaires "Prod-S Arena" (bas + côtés) */
 function drawAdBoards(){
   const b = getBounds();
   const pad = 4;
@@ -850,7 +1024,7 @@ function drawAdBoards(){
   const bottomY = Math.min(CANVAS_H - h, b.bottom + pad);
   drawAdStrip(b.left, bottomY, b.right - b.left, h, 'horizontal', "Prod-S Arena");
 
-  // Côté gauche et droit (vertical complet)
+  // Côtés
   const leftX = Math.max(0, b.left - h - pad);
   drawAdStrip(leftX, b.top, h, b.bottom - b.top, 'vertical', "Prod-S Arena");
 
@@ -901,7 +1075,7 @@ function drawAdStrip(x, y, w, h, orientation, label){
       ctx.fillText(label, px, baseY);
     }
   } else {
-    // Vertical: on écrit le label sur toute la hauteur (rotation)
+    // Vertical: sur toute la hauteur
     let fontSize = w >= 26 ? 16 : 14;
     ctx.font = '800 ' + fontSize + 'px Poppins, system-ui, sans-serif';
 
@@ -1025,12 +1199,11 @@ function drawLoseOverlay() {
   const fieldW = b.right - b.left;
   const fieldH = b.bottom - b.top;
   const cx = (b.left + b.right) / 2;
-  const cy = (b.top + b.bottom) / 2;
 
   const cardW = Math.min(320, fieldW * 0.8);
   const cardH = 150;
   const cardX = cx - cardW / 2;
-  const cardY = cy - cardH / 2;
+  const cardY = b.top + (fieldH - cardH)/2;
 
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,0.25)';
@@ -1081,12 +1254,11 @@ function drawWinOverlay() {
   const fieldW = b.right - b.left;
   const fieldH = b.bottom - b.top;
   const cx = (b.left + b.right) / 2;
-  const cy = (b.top + b.bottom) / 2;
 
   const cardW = Math.min(360, fieldW * 0.86);
   const cardH = 180;
   const cardX = cx - cardW / 2;
-  const cardY = cy - cardH / 2;
+  const cardY = b.top + (fieldH - cardH)/2;
 
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,0.25)';
@@ -1107,11 +1279,10 @@ function drawWinOverlay() {
   ctx.lineWidth = 4;
   const msg = "Félicitations !\nCordialement, respectueusement,\net avec bienveillance.";
   const lines = msg.split('\n');
-  const baseY = cardY + 58;
   for (let i=0;i<lines.length;i++){
     const line = lines[i];
-    ctx.strokeText(line, cx, baseY + i*22);
-    ctx.fillText(line, cx, baseY + i*22);
+    ctx.strokeText(line, cx, cardY + 58 + i*22);
+    ctx.fillText(line, cx, cardY + 58 + i*22);
   }
 
   const btnW = Math.min(220, cardW - 40);
@@ -1178,10 +1349,9 @@ function computeFootOffsets(speed, time, seed){
   return { left:  amp * s, right: -amp * s };
 }
 
-/* Dessin persos + trompette face caméra */
+/* Dessin persos */
 function drawMusician(ctx,x,y,scale=1.2,isPlayer=false,variant='john',speed=0,time=0,seed=0){
   const foot = computeFootOffsets(speed, time, seed);
-
   ctx.save(); ctx.translate(x,y); ctx.scale(scale,scale);
   // Ombre
   ctx.beginPath(); ctx.ellipse(0,18,9,5,0,0,2*Math.PI); ctx.fillStyle="rgba(0,0,0,0.22)"; ctx.fill();
@@ -1195,6 +1365,7 @@ function drawMusician(ctx,x,y,scale=1.2,isPlayer=false,variant='john',speed=0,ti
 }
 
 function drawTrumpetFront(ctx){
+  // Pavillon vu de face (disque doré)
   ctx.save();
   const bx = 0, by = -10;
   const rOuter = 5.6, rInner = 3.8;
@@ -1232,44 +1403,107 @@ function baseFeetAndLegs(ctx, footDYLeft=0, footDYRight=0){
 
 function drawJohn(ctx,isPlayer,footDYLeft,footDYRight,seed){
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
-  ctx.beginPath(); ctx.moveTo(-7.5,-8); ctx.lineTo(-3.2,8); ctx.lineTo(3.2,8); ctx.lineTo(7.5,-8); ctx.lineTo(0,-12.5); ctx.closePath();
-  ctx.fillStyle = isPlayer ? "#FFD700" : "#d00"; ctx.fill();
+  // Torse/tenue principale
+  ctx.beginPath();
+  ctx.moveTo(-7.5,-8); ctx.lineTo(-3.2,8); ctx.lineTo(3.2,8); ctx.lineTo(7.5,-8); ctx.lineTo(0,-12.5); ctx.closePath();
+  ctx.fillStyle = isPlayer ? JOHN_PLAYER_MAIN : JOHN_NPC_MAIN; // or (npc) navy
+  ctx.fill();
+
+  // Triangle clair poitrine
   ctx.beginPath(); ctx.moveTo(-2.2,-9.5); ctx.lineTo(2.2,-9.5); ctx.lineTo(0,-12.5); ctx.closePath(); ctx.fillStyle="#fff"; ctx.fill();
-  ctx.beginPath(); ctx.moveTo(-7.5,-8); ctx.lineTo(-10.5,-3); ctx.lineTo(-7.5,3); ctx.lineTo(-5.5,-6); ctx.closePath();
-  ctx.moveTo(7.5,-8); ctx.lineTo(10.5,-3); ctx.lineTo(7.5,3); ctx.lineTo(5.5,-6); ctx.closePath(); ctx.fillStyle="#fff"; ctx.fill();
+
+  // Épaulettes claires
+  ctx.beginPath();
+  ctx.moveTo(-7.5,-8); ctx.lineTo(-10.5,-3); ctx.lineTo(-7.5,3); ctx.lineTo(-5.5,-6); ctx.closePath();
+  ctx.moveTo(7.5,-8); ctx.lineTo(10.5,-3); ctx.lineTo(7.5,3); ctx.lineTo(5.5,-6); ctx.closePath();
+  ctx.fillStyle="#fff"; ctx.fill();
+
+  // Tête + casquette
   ctx.beginPath(); ctx.arc(0,-14,5.2,0,2*Math.PI); ctx.fillStyle="#fbe2b6"; ctx.fill();
   ctx.beginPath(); ctx.ellipse(0,-18.5,6.4,3.2,0,0,2*Math.PI); ctx.fillStyle="#fff"; ctx.fill();
   ctx.beginPath(); ctx.rect(-4.2,-28.5,8.4,10.5); ctx.fillStyle="#fff"; ctx.fill();
   ctx.fillStyle="#111"; ctx.fillRect(-4.2,-22.4,8.4,2.2);
-  ctx.fillStyle="#d00"; ctx.fillRect(-4.2,-28.5,8.4,2.2);
+
+  // Bandeau (remplace rouge par marine)
+  ctx.fillStyle = JOHN_ACCENT;
+  ctx.fillRect(-4.2,-28.5,8.4,2.2);
+
+  // Liseré vertical
   ctx.fillStyle="#fff"; ctx.fillRect(-1.2,-5,2.4,9.5);
+
+  // John conserve la trompette
   drawTrumpetFront(ctx);
 }
 
 function drawMinik(ctx,isPlayer,footDYLeft,footDYRight,seed){
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
+  // Corps
   ctx.beginPath(); ctx.moveTo(-10,-6); ctx.quadraticCurveTo(-14,4,-6,10); ctx.lineTo(6,10); ctx.quadraticCurveTo(14,4,10,-6); ctx.lineTo(0,-14); ctx.closePath();
-  ctx.fillStyle = isPlayer ? "#FFD700" : "#2a63d4"; ctx.fill();
-  ctx.beginPath(); ctx.arc(0,-15,6.2,0,2*Math.PI); ctx.fillStyle="#f2d2a9"; ctx.fill();
-  ctx.beginPath(); ctx.ellipse(0,-19.5,7.5,3.6,0,0,2*Math.PI); ctx.fillStyle="#eaeaea"; ctx.fill();
-  ctx.fillStyle="#333"; ctx.fillRect(-5,-24,10,2);
-  drawTrumpetFront(ctx);
+  ctx.fillStyle = isPlayer ? JOHN_PLAYER_MAIN : "#2a63d4"; ctx.fill(); // garde or si joueur (si sélectionné), sinon bleu
+
+  // Tête
+  ctx.beginPath(); ctx.arc(0,-15,6.0,0,2*Math.PI); ctx.fillStyle="#f2d2a9"; ctx.fill();
+
+  // Visage joufflu + moustache
+  ctx.fillStyle = "rgba(255,120,120,0.35)";
+  ctx.beginPath(); ctx.arc(-3.2, -13.5, 2.2, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc( 3.2, -13.5, 2.2, 0, Math.PI*2); ctx.fill();
+
+  ctx.fillStyle = "#221f1f";
+  ctx.beginPath(); ctx.arc(-2.2, -16.2, 0.9, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc( 2.2, -16.2, 0.9, 0, Math.PI*2); ctx.fill();
+
+  ctx.strokeStyle = "#b9876a"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0,-15.8); ctx.lineTo(0,-14.2); ctx.stroke();
+
+  ctx.strokeStyle = "#1b1616"; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(-0.4,-13.4); ctx.quadraticCurveTo(-2.6,-12.8,-4.2,-13.6); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo( 0.4,-13.4); ctx.quadraticCurveTo( 2.6,-12.8, 4.2,-13.6); ctx.stroke();
+
+  ctx.fillStyle = "#eaeaea";
+  ctx.beginPath(); ctx.ellipse(0,-19.5,7.2,3.4,0,0,2*Math.PI); ctx.fill();
+
+  // Pas de trompette pour Minik
 }
 
 function drawAmelie(ctx,isPlayer,footDYLeft,footDYRight,seed){
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
+  // Corps
   ctx.beginPath(); ctx.moveTo(-8,-6); ctx.lineTo(-12,8); ctx.lineTo(12,8); ctx.lineTo(8,-6); ctx.lineTo(0,-12); ctx.closePath();
-  ctx.fillStyle = isPlayer ? "#FFD700" : "#ff7f1f"; ctx.fill();
-  ctx.beginPath(); ctx.moveTo(-3,-9); ctx.lineTo(3,-9); ctx.lineTo(0,-12); ctx.closePath(); ctx.fillStyle="#fff"; ctx.fill();
-  ctx.beginPath(); ctx.arc(0,-14,5.0,0,2*Math.PI); ctx.fillStyle="#f7d8b8"; ctx.fill();
-  ctx.beginPath(); ctx.ellipse(0,-18,8.5,3.2,0,0,2*Math.PI); ctx.fillStyle="#252525"; ctx.fill();
-  ctx.beginPath(); ctx.moveTo(0,-30); ctx.lineTo(-4.5,-18); ctx.lineTo(4.5,-18); ctx.closePath(); ctx.fillStyle="#1d1d1d"; ctx.fill();
-  drawTrumpetFront(ctx);
+  ctx.fillStyle = isPlayer ? JOHN_PLAYER_MAIN : "#ff7f1f"; ctx.fill();
+
+  // Tête (sorcière)
+  ctx.beginPath(); ctx.arc(0,-15,5.6,0,2*Math.PI); ctx.fillStyle="#b4d98e"; ctx.fill();
+
+  // Nez long + verrue
+  ctx.fillStyle = "#9cc377";
+  ctx.beginPath(); ctx.moveTo(0,-15); ctx.lineTo(4.2,-13.2); ctx.lineTo(0.2,-13.8); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "#2d3a23";
+  ctx.beginPath(); ctx.arc(2.7, -13.1, 0.6, 0, 2*Math.PI); ctx.fill();
+
+  // Yeux & sourcils
+  ctx.fillStyle = "#111";
+  ctx.beginPath(); ctx.arc(-2.0, -16.4, 0.9, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc( 2.0, -16.4, 0.9, 0, Math.PI*2); ctx.fill();
+
+  ctx.strokeStyle = "#1a1a1a"; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(-3.4,-17.8); ctx.lineTo(-0.6,-17.0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo( 3.4,-17.8); ctx.lineTo( 0.6,-17.0); ctx.stroke();
+
+  // Bouche
+  ctx.strokeStyle = "#5a1122"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(-1.6,-12.8); ctx.lineTo(1.6,-12.8); ctx.stroke();
+
+  // Chapeau bandeau sombre
+  ctx.fillStyle = "#252525";
+  ctx.beginPath(); ctx.ellipse(0,-18,8.5,3.2,0,0,2*Math.PI); ctx.fill();
+
+  // Pas de trompette pour Amélie
 }
 
 function drawCandice(ctx,isPlayer,footDYLeft,footDYRight,seed){
   baseFeetAndLegs(ctx, footDYLeft, footDYRight);
-
+  // Robe glacée
   const grdDress = ctx.createLinearGradient(0,-14, 0, 10);
   grdDress.addColorStop(0, isPlayer ? "#bfe9ff" : "#9ad7ff");
   grdDress.addColorStop(1, isPlayer ? "#79b9ff" : "#5aa7f0");
@@ -1283,6 +1517,7 @@ function drawCandice(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.fillStyle = grdDress;
   ctx.fill();
 
+  // Cape translucide
   ctx.beginPath();
   ctx.moveTo(-8,-8);
   ctx.quadraticCurveTo(-14,-2,-10,8);
@@ -1292,38 +1527,43 @@ function drawCandice(ctx,isPlayer,footDYLeft,footDYRight,seed){
   ctx.fillStyle = "rgba(180,220,255,0.25)";
   ctx.fill();
 
-  ctx.beginPath(); ctx.arc(0,-15,5.4,0,2*Math.PI); ctx.fillStyle="#f6dfc8"; ctx.fill();
+  // Tête (poupée)
+  ctx.beginPath(); ctx.arc(0,-15,5.6,0,2*Math.PI); ctx.fillStyle="#f6dfc8"; ctx.fill();
 
-  ctx.fillStyle = "#f0ede1";
-  ctx.beginPath();
-  ctx.ellipse(0,-19.2,7.0,3.2,0,0,2*Math.PI);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(2,-13);
-  ctx.quadraticCurveTo(7,-9,4,-5);
-  ctx.quadraticCurveTo(2,-2,5,0);
-  ctx.quadraticCurveTo(3,2,4,4);
-  ctx.strokeStyle = "#e1d9c9";
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  // Yeux ronds + reflets
+  ctx.fillStyle = "#1a1a1a";
+  ctx.beginPath(); ctx.arc(-2.2, -16.0, 1.2, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc( 2.2, -16.0, 1.2, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.8)";
+  ctx.beginPath(); ctx.arc(-2.6, -16.4, 0.4, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc( 1.8, -16.4, 0.4, 0, Math.PI*2); ctx.fill();
 
+  // Joues + bouche
+  ctx.fillStyle = "rgba(255,120,120,0.35)";
+  ctx.beginPath(); ctx.arc(-3.2, -13.4, 1.9, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc( 3.2, -13.4, 1.9, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = "#d1425b";
+  ctx.beginPath(); ctx.arc(0, -13.0, 0.9, 0, Math.PI*2); ctx.fill();
+
+  // Diadème flocon discret
   ctx.save();
-  ctx.translate(0,-21.5);
+  ctx.translate(0,-21.0);
   ctx.strokeStyle = isPlayer ? "#dff6ff" : "#cfefff";
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 1.2;
   for (let i=0;i<6;i++){
     ctx.rotate(Math.PI/3);
     ctx.beginPath();
     ctx.moveTo(0,0);
-    ctx.lineTo(0,-4.5);
+    ctx.lineTo(0,-4.0);
     ctx.stroke();
   }
   ctx.restore();
 
+  // Liseré central clair
   ctx.fillStyle = "rgba(255,255,255,0.85)";
-  ctx.fillRect(-1.1,-5.5,2.2,10);
+  ctx.fillRect(-1.0,-5.5,2.0,10);
 
-  drawTrumpetFront(ctx);
+  // Pas de trompette pour Candice
 }
 
 /* Aperçus */
@@ -1388,6 +1628,7 @@ function winGame(){
 
 function backToMenu(){
   gameState = null;
+  detachInputs();
   try { if (musicAudio) musicAudio.pause(); } catch(_){}
   try { if (musicAudio) musicAudio.currentTime = 0; } catch(_){}
 
