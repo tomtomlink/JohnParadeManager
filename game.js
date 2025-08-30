@@ -407,7 +407,7 @@ function grid5x5(cx,cy,size){ const pts=[]; const step=size/4, sx=cx-size/2, sy=
 function plusShape(cx,cy,r){
   const pts=[], step=r/4;
   for(let i=-2;i<=2;i++) pts.push({x:cx,y:cy+i*step});
-  for(let i=-2;i<=2)i f(i!==0) pts.push({x:cx+i*step,y:cy});
+  for(let i=-2;i<=2;i++) if(i!==0) pts.push({x:cx+i*step,y:cy});
   while(pts.length<MUSICIANS){
     const k=pts.length, off=.6+.2*((k%4)-1.5);
     pts.push({x:cx+off*step,y:cy+off*step});
