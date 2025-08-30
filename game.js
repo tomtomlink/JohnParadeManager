@@ -1,4 +1,4 @@
-// John Parade Manager – affichage fiabilisé (préviews au chargement, modales cachées), mêmes fonctionnalités
+// John Parade Manager – no auto-move for player, 3s grace, centered menu/HUD (requires styles.css)
 
 let CANVAS_W = 360, CANVAS_H = 640; // set on resize
 
@@ -30,7 +30,6 @@ const colors = {
 };
 
 let canvas, ctx, gameState = null;
-let playerTarget = {x: 0, y: 0};
 let musicAudio = null;
 let selectedCharacter = 'john';
 let isDragging = false;
@@ -49,8 +48,6 @@ function showOverlay(message, buttonText="Recommencer"){
   overlay.style.display = 'grid';
   if (gameState) gameState.running = false;
 }
-function hideOverlay(){ document.getElementById('game-overlay').style.display='none'; if (gameState) gameState.running = true; }
-
 function showBanner(text, ms=1400){
   const b = document.getElementById('level-banner');
   b.textContent = text;
@@ -67,20 +64,17 @@ window.onload = () => {
   const closeSelect = document.getElementById('close-select');
   const modal = document.getElementById('select-modal');
 
-  // Cache la modale dès le départ, même si CSS ne charge pas
+  // Init selection modal (hidden by default)
   modal.setAttribute('aria-hidden','true');
   modal.style.display = 'none';
-
-  // Préremplir les aperçus même si on ouvre la modale très tôt
   drawCharacterPreviews();
 
-  // Boutons
   playBtn.onclick = startGame;
   document.getElementById('overlay-button').onclick = () => location.reload();
 
   selectBtn.addEventListener('click', () => {
     modal.setAttribute('aria-hidden','false');
-    modal.style.display = 'flex'; // fallback si CSS late
+    modal.style.display = 'flex';
     drawCharacterPreviews();
   });
   closeSelect.addEventListener('click', () => {
@@ -91,13 +85,12 @@ window.onload = () => {
   document.querySelectorAll('.char-card').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       selectedCharacter = btn.dataset.char || 'john';
-      document.getElementById('select-btn').textContent = `Musicien: ${selectedCharacter.charAt(0).toUpperCase()+selectedCharacter.slice(1)}`;
+      selectBtn.textContent = `Musicien: ${selectedCharacter.charAt(0).toUpperCase()+selectedCharacter.slice(1)}`;
       modal.setAttribute('aria-hidden','true');
-      modal.style.display = 'none';
+      modal.style.display='none';
     });
   });
 
-  // Musique
   musicAudio = new Audio('music.mp3'); musicAudio.loop = true;
 
   resizeCanvas();
@@ -125,8 +118,7 @@ function resizeCanvas(){
 
 function startGame(){
   document.getElementById('main-menu').style.display = 'none';
-  const gc = document.getElementById('game-container');
-  gc.style.display = 'flex';
+  document.getElementById('game-container').style.display = 'flex';
 
   initFormation();
 
@@ -137,14 +129,15 @@ function startGame(){
     score: 0,
     running: true,
 
+    // timeline
     moves: [],
     currentMove: 0,
     moveStartTime: performance.now(),
     moveDuration: MOVE_DURATION_BASE,
     moveFrom: [],
     moveTo: [],
-    playerFrom: {x:0,y:0},
-    playerTo: {x:0,y:0},
+
+    graceUntil: performance.now() + 3000 // 3s de grâce pour se placer
   };
 
   if (musicAudio && musicAudio.paused) { musicAudio.currentTime = 0; musicAudio.play().catch(()=>{}); }
@@ -294,12 +287,7 @@ function setStepTargets(stepIdx){
   const rawTargets = gameState.moveFrom.map((p,i)=>({x:p.x+deltas[i].dx, y:p.y+deltas[i].dy}));
   const adjusted = resolveTargets(gameState.moveFrom, rawTargets);
   gameState.moveTo = adjusted;
-
-  const iP = gameState.playerIdx;
-  const dpx = adjusted[iP].x - gameState.moveFrom[iP].x;
-  const dpy = adjusted[iP].y - gameState.moveFrom[iP].y;
-  gameState.playerFrom = {x: gameState.player.x, y: gameState.player.y};
-  gameState.playerTo = {x: gameState.player.x + dpx, y: gameState.player.y + dpy};
+  // IMPORTANT: on ne touche jamais à la position du joueur ici (pas de playerTo/playerFrom)
 }
 
 function gameLoop(){ if(!gameState || !gameState.running) return; update(); render(); requestAnimationFrame(gameLoop); }
@@ -308,9 +296,10 @@ function update(){
   const now = performance.now();
   let elapsed = now - gameState.moveStartTime;
 
+  // Enchaînement fluide des steps
   while (elapsed >= gameState.moveDuration){
+    // finalise step (formation seulement)
     for (let i=0;i<FORMATION.length;i++){ FORMATION[i].x = gameState.moveTo[i].x; FORMATION[i].y = gameState.moveTo[i].y; }
-    gameState.player.x = gameState.playerTo.x; gameState.player.y = gameState.playerTo.y;
 
     gameState.currentMove++;
     if (gameState.currentMove >= gameState.moves.length){
@@ -326,41 +315,40 @@ function update(){
     elapsed = now - gameState.moveStartTime;
   }
 
+  // Interpolation du step courant (formation seulement)
   const t = clamp(elapsed / gameState.moveDuration, 0, 1);
   for (let i=0;i<FORMATION.length;i++){
     FORMATION[i].x = lerp(gameState.moveFrom[i].x, gameState.moveTo[i].x, t);
     FORMATION[i].y = lerp(gameState.moveFrom[i].y, gameState.moveTo[i].y, t);
   }
-  gameState.player.x = lerp(gameState.playerFrom.x, gameState.playerTo.x, t);
-  gameState.player.y = lerp(gameState.playerFrom.y, gameState.playerTo.y, t);
 
-  if (isDragging){
-    const FOLLOW_SPEED = 0.25;
-    const tgt = clampIntoBounds(playerTarget, 30);
-    gameState.player.x += (tgt.x - gameState.player.x) * FOLLOW_SPEED;
-    gameState.player.y += (tgt.y - gameState.player.y) * FOLLOW_SPEED;
-    const clampP = clampIntoBounds({x:gameState.player.x, y:gameState.player.y}, 30);
-    gameState.player.x = clampP.x; gameState.player.y = clampP.y;
-  }
+  // PAS de déplacement automatique du joueur ici
+  // La position du joueur ne change que sur pointermove (drag)
 
-  if (!isPlayerInZone()){
-    gameState.player.outZoneMs += 16;
-    if (gameState.player.outZoneMs > MAX_OUT_ZONE_MS) endGame();
-  } else {
-    gameState.player.outZoneMs = 0;
-    gameState.score++;
+  // Timer "hors zone" avec 3s de grâce au démarrage
+  const inGrace = now < gameState.graceUntil;
+  if (!inGrace){
+    if (!isPlayerInZone()){
+      gameState.player.outZoneMs += 16;
+      if (gameState.player.outZoneMs > MAX_OUT_ZONE_MS) endGame();
+    } else {
+      gameState.player.outZoneMs = 0;
+      gameState.score++;
+    }
   }
 }
 
-function onPointerDown(e){ e.preventDefault?.(); isDragging = true; updateTargetFromEvent(e); }
-function onPointerMove(e){ if (!isDragging) return; updateTargetFromEvent(e); }
+// Input: le joueur suit exactement le curseur (pas de smoothing)
+function onPointerDown(e){ e.preventDefault?.(); isDragging = true; setPlayerFromEvent(e); }
+function onPointerMove(e){ if (!isDragging) return; setPlayerFromEvent(e); }
 function onPointerUp(e){ isDragging = false; }
-function updateTargetFromEvent(e){
+function setPlayerFromEvent(e){
   const rect = canvas.getBoundingClientRect();
   const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
   const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
   const c = clampIntoBounds({x,y}, 30);
-  playerTarget.x = c.x; playerTarget.y = c.y;
+  gameState.player.x = c.x;
+  gameState.player.y = c.y;
 }
 
 let grassPattern = null;
@@ -376,29 +364,34 @@ function getGrassPattern(){
 }
 
 function render(){
+  // Fond pelouse texturé
   ctx.fillStyle = getGrassPattern();
   ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
 
   const b=getBounds();
+  // Zone public assombrie
   ctx.fillStyle='rgba(0,0,0,0.18)';
   ctx.fillRect(0,0,CANVAS_W,b.top);
   ctx.fillRect(0,b.bottom,CANVAS_W,CANVAS_H-b.bottom);
   ctx.fillRect(0,b.top,b.left,b.bottom-b.top);
   ctx.fillRect(b.right,b.top,CANVAS_W-b.right,b.bottom-b.top);
 
+  // Lignes terrain
   ctx.strokeStyle='rgba(255,255,255,0.8)';
   ctx.lineWidth=2;
   ctx.strokeRect(b.left,b.top,b.right-b.left,b.bottom-b.top);
 
+  // Foule
   drawCrowd();
 
-  // Zone jaune centrée sur les pieds du slot joueur
-  const iSlot = (gameState? gameState.playerIdx : 12);
+  // Zone jaune au niveau des pieds du slot joueur
+  const iSlot = gameState ? gameState.playerIdx : 12;
   const zoneX = FORMATION[iSlot].x;
   const zoneY = FORMATION[iSlot].y + FOOT_OFFSET * SCALE_PNJ;
   ctx.beginPath(); ctx.arc(zoneX, zoneY, ZONE_RADIUS, 0, 2*Math.PI);
   ctx.fillStyle = colors.zone; ctx.fill();
 
+  // Musiciens
   for (let i=0;i<FORMATION.length;i++){
     const isPlayer = (gameState && i===gameState.playerIdx);
     const x = isPlayer ? gameState.player.x : FORMATION[i].x;
@@ -434,6 +427,7 @@ function drawCrowdRegion(x0,y0,x1,y1,stepX=18,stepY=18){
   }
 }
 
+// Dessin des personnages
 function drawMusician(ctx,x,y,scale=1.2,isPlayer=false,variant='john'){
   ctx.save(); ctx.translate(x,y); ctx.scale(scale,scale);
   ctx.beginPath(); ctx.ellipse(0,18,9,5,0,0,2*Math.PI); ctx.fillStyle="rgba(0,0,0,0.22)"; ctx.fill();
@@ -507,6 +501,7 @@ function drawCharacterPreviews(){
   });
 }
 
+// Vérification zone via les pieds
 function isPlayerInZone(){
   const idx = gameState.playerIdx;
   const zoneX = FORMATION[idx].x;
@@ -517,12 +512,12 @@ function isPlayerInZone(){
   return (dx*dx + dy*dy) < (ZONE_RADIUS*ZONE_RADIUS);
 }
 
+// Enchaînement des niveaux (sans pause)
 function completeLevel(){
   gameState.level++;
   showBanner("Bravo, on continue la cohésion jusqu'au bout!");
   gameState.player.outZoneMs = 0;
-  const center = FORMATION[gameState.playerIdx];
-  gameState.player.x = center.x; gameState.player.y = center.y;
+  // Ne pas déplacer le joueur automatiquement
   initLevel(gameState.level);
   gameState.currentMove = 0;
   gameState.moveStartTime = performance.now();
