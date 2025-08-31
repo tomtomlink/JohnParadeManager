@@ -1036,7 +1036,7 @@ function clampIntoBounds(pos, m){ const b=getBounds(); return { x: clamp(pos.x, 
 function getResponsiveScale(){
   const b = getBounds();
   const minSide = Math.min(b.right - b.left, b.bottom - b.top);
-  return clamp(0.85, minSide / 420, 1.0);
+  return clamp(minSide / 420, 0.85, 1.0);
 }
 
 // Update responsive values based on current scale
