@@ -18,15 +18,23 @@ let CANVAS_W = 360, CANVAS_H = 640;
 const MUSICIANS = 25;
 const ROWS = 5, COLS = 5;
 const FORMATION = [];
-const PNJ_RADIUS = 12;
-const ZONE_RADIUS = 22;
+
+// Base constants for responsive scaling
+const BASE_PNJ_RADIUS = 12;
+const BASE_PLAYER_RADIUS = 16; // Derived from zone relationship
 const FOOT_OFFSET = 18;
 const SCALE_PLAYER = 1.35;
 const SCALE_PNJ = 1.25;
 
+// Responsive computed values (will be updated on resize)
+let PNJ_RADIUS = BASE_PNJ_RADIUS;
+let PLAYER_RADIUS = BASE_PLAYER_RADIUS;
+let ZONE_RADIUS = 22;
+let MIN_DIST = 26;
+let FORMATION_CLAMP_MARGIN = 26;
+
 const MOVE_DURATION_BASE = 2000;
 const MAX_OUT_ZONE_MS = 5000; // 5 secondes de compte à rebours
-const MIN_DIST = 26;
 
 let PAD_LR = 22;
 let PAD_TOP = 40;
@@ -1023,6 +1031,23 @@ function drawCharacterPreviews(){
 function getBounds(){ return { left: PAD_LR, right: CANVAS_W - PAD_LR, top: PAD_TOP, bottom: CANVAS_H - PAD_BOTTOM }; }
 function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
 function clampIntoBounds(pos, m){ const b=getBounds(); return { x: clamp(pos.x, b.left+m, b.right-m), y: clamp(pos.y, b.top+m, b.bottom-m) }; }
+
+// Responsive scale helper
+function getResponsiveScale(){
+  const b = getBounds();
+  const minSide = Math.min(b.right - b.left, b.bottom - b.top);
+  return clamp(0.85, minSide / 420, 1.0);
+}
+
+// Update responsive values based on current scale
+function updateResponsiveValues(){
+  const s = getResponsiveScale();
+  PNJ_RADIUS = Math.round(BASE_PNJ_RADIUS * s);
+  PLAYER_RADIUS = Math.round(BASE_PLAYER_RADIUS * s);
+  MIN_DIST = Math.round(2.2 * PNJ_RADIUS);
+  ZONE_RADIUS = Math.round(PNJ_RADIUS * 1.83); // Maintain ratio with PNJ_RADIUS
+  FORMATION_CLAMP_MARGIN = Math.max(26, Math.round(2.5 * PNJ_RADIUS));
+}
 function lerp(a,b,t){ return a + (b-a)*t; }
 function lerpPt(p,q,t){ return {x:lerp(p.x,q.x,t), y:lerp(p.y,q.y,t)}; }
 function easeInOutCubic(t){ return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2; }
@@ -1045,6 +1070,9 @@ function resizeCanvas(){
   PAD_TOP = Math.round(36 * scale);
   PAD_BOTTOM = Math.round(28 * scale);
 
+  // Update responsive values based on new canvas size
+  updateResponsiveValues();
+
   const dpr = Math.max(1, window.devicePixelRatio || 1);
   canvas.style.width = CANVAS_W + 'px';
   canvas.style.height = CANVAS_H + 'px';
@@ -1059,6 +1087,9 @@ function startGame(){
   const gc = document.getElementById('game-container');
   if (mm) mm.style.display = 'none';
   if (gc) gc.style.display = 'flex';
+
+  // Initialize responsive values before formation
+  updateResponsiveValues();
 
   initFormation();
 
@@ -1396,7 +1427,7 @@ function update(){
     const vy = J.dy * PLAYER_SPEED;
     const nx = gameState.player.x + vx * dtSec;
     const ny = gameState.player.y + vy * dtSec;
-    const clamped = clampIntoBounds({x:nx, y:ny}, 30);
+    const clamped = clampIntoBounds({x:nx, y:ny}, FORMATION_CLAMP_MARGIN);
     gameState.player.x = clamped.x;
     gameState.player.y = clamped.y;
   }
@@ -1553,7 +1584,7 @@ function getEventPointFromClient(clientX, clientY){
   const rect = canvas.getBoundingClientRect();
   const x = clientX - rect.left;
   const y = clientY - rect.top;
-  return clampIntoBounds({x,y}, 30);
+  return clampIntoBounds({x,y}, FORMATION_CLAMP_MARGIN);
 }
 
 // ============================================================================
