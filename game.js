@@ -27,6 +27,7 @@ const SCALE_PNJ = 1.25;
 const MOVE_DURATION_BASE = 2000;
 const MAX_OUT_ZONE_MS = 5000; // 5 secondes de compte à rebours
 const MIN_DIST = 26;
+const FORMATION_CLAMP_MARGIN = 30; // Aligned with clampIntoBounds(..., 30)
 
 let PAD_LR = 22;
 let PAD_TOP = 40;
@@ -1027,6 +1028,54 @@ function lerp(a,b,t){ return a + (b-a)*t; }
 function lerpPt(p,q,t){ return {x:lerp(p.x,q.x,t), y:lerp(p.y,q.y,t)}; }
 function easeInOutCubic(t){ return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2; }
 
+function getScaledMinDist(){
+  // Return the minimum distance scaled for current canvas size
+  return MIN_DIST;
+}
+
+function fitFormationToBounds(positions, bounds = null, margin = FORMATION_CLAMP_MARGIN, minDist = null){
+  if (!bounds) bounds = getBounds();
+  if (!minDist) minDist = getScaledMinDist();
+  
+  // Create a copy of positions to avoid mutating the original
+  let fitted = positions.map(p => ({x: p.x, y: p.y}));
+  
+  // First pass: clamp all positions to bounds with margin
+  for (let i = 0; i < fitted.length; i++) {
+    fitted[i] = clampIntoBounds(fitted[i], margin);
+  }
+  
+  // Second pass: resolve collisions while maintaining bounds
+  let changed = true, iter = 0;
+  while (changed && iter < 12) {
+    changed = false;
+    for (let i = 0; i < fitted.length; i++) {
+      for (let j = i + 1; j < fitted.length; j++) {
+        const dx = fitted[j].x - fitted[i].x;
+        const dy = fitted[j].y - fitted[i].y;
+        const d = Math.hypot(dx, dy);
+        if (d < minDist) {
+          changed = true;
+          const nx = dx / (d || 1);
+          const ny = dy / (d || 1);
+          const push = (minDist - d) / 2;
+          fitted[i].x -= nx * push;
+          fitted[i].y -= ny * push;
+          fitted[j].x += nx * push;
+          fitted[j].y += ny * push;
+          
+          // Re-clamp to bounds after push
+          fitted[i] = clampIntoBounds(fitted[i], margin);
+          fitted[j] = clampIntoBounds(fitted[j], margin);
+        }
+      }
+    }
+    iter++;
+  }
+  
+  return fitted;
+}
+
 function showBanner(text, ms=1400){
   const b = document.getElementById('level-banner');
   if (!b) return;
@@ -1075,6 +1124,8 @@ function startGame(){
     moveDuration: MOVE_DURATION_BASE,
     moveFrom: [],
     moveTo: [],
+
+    snapAtArrival: false, // Flag for snapping to exact targets on final step
 
     graceUntil: performance.now() + 3000, // 3s de grâce
     loseActive: false,
@@ -1209,12 +1260,28 @@ function buildSmoothPathMoves(startPositions, endPositions, steps, level){
   return path;
 }
 
-function resolveTargets(fromPositions, targetPositions){
+function resolveTargets(fromPositions, targetPositions, strength = 1.0){
   const N = targetPositions.length;
   let newPos = targetPositions.map(p=>({x:p.x,y:p.y}));
   for (let i=0;i<N;i++){
     newPos[i] = clampIntoBounds(newPos[i], (i===12)? ZONE_RADIUS : PNJ_RADIUS);
   }
+  
+  // If strength is very low, apply minimal repulsion and snap close positions
+  if (strength < 0.1) {
+    for (let i = 0; i < N; i++) {
+      const dx = targetPositions[i].x - fromPositions[i].x;
+      const dy = targetPositions[i].y - fromPositions[i].y;
+      const distSq = dx*dx + dy*dy;
+      // If within 0.8px (0.64 squared), snap exactly
+      if (distSq < 0.64) {
+        newPos[i].x = targetPositions[i].x;
+        newPos[i].y = targetPositions[i].y;
+      }
+    }
+    return newPos;
+  }
+  
   let changed=true, iter=0;
   while(changed && iter<12){
     changed=false;
@@ -1224,7 +1291,7 @@ function resolveTargets(fromPositions, targetPositions){
         const d=Math.hypot(dx,dy);
         if (d<MIN_DIST){
           changed=true;
-          const nx=dx/(d||1), ny=dy/(d||1), push=(MIN_DIST-d)/2;
+          const nx=dx/(d||1), ny=dy/(d||1), push=(MIN_DIST-d)/2 * strength;
           newPos[i].x-=nx*push; newPos[i].y-=ny*push;
           newPos[j].x+=nx*push; newPos[j].y+=ny*push;
           newPos[i]=clampIntoBounds(newPos[i], (i===12)? ZONE_RADIUS : PNJ_RADIUS);
@@ -1241,19 +1308,23 @@ function resolveTargets(fromPositions, targetPositions){
 function getLevelFinalShapePositions(level){
   const b=getBounds(), cx=(b.left+b.right)/2, cy=(b.top+b.bottom)/2;
   const w=(b.right-b.left), h=(b.bottom-b.top), r=Math.min(w,h)*.36;
+  let rawPositions;
   switch(level){
-    case 1: return distributeAlongPolyline(diamondVertices(cx,cy,r), MUSICIANS);
-    case 2: return pointsOnCircle(cx,cy,r, MUSICIANS);
-    case 3: return grid5x5(cx,cy, Math.min(w,h)*.58);
-    case 4: return distributeAlongPolyline(starVertices(cx,cy,r*.55,r,-Math.PI/2), MUSICIANS);
-    case 5: return distributeAlongPolyline(polygonVertices(cx,cy,3,r,-Math.PI/2), MUSICIANS);
-    case 6: return distributeAlongPolyline(polygonVertices(cx,cy,6,r,-Math.PI/2), MUSICIANS);
-    case 7: return plusShape(cx,cy,r);
-    case 8: return distributeAlongPolyline(polygonVertices(cx,cy,5,r,-Math.PI/2), MUSICIANS);
-    case 9: return xShape(cx,cy,r);
-    case 10:return distributeAlongPolyline(polygonVertices(cx,cy,8,r,-Math.PI/2), MUSICIANS);
-    default:return pointsOnCircle(cx,cy,r, MUSICIANS);
+    case 1: rawPositions = distributeAlongPolyline(diamondVertices(cx,cy,r), MUSICIANS); break;
+    case 2: rawPositions = pointsOnCircle(cx,cy,r, MUSICIANS); break;
+    case 3: rawPositions = grid5x5(cx,cy, Math.min(w,h)*.58); break;
+    case 4: rawPositions = distributeAlongPolyline(starVertices(cx,cy,r*.55,r,-Math.PI/2), MUSICIANS); break;
+    case 5: rawPositions = distributeAlongPolyline(polygonVertices(cx,cy,3,r,-Math.PI/2), MUSICIANS); break;
+    case 6: rawPositions = distributeAlongPolyline(polygonVertices(cx,cy,6,r,-Math.PI/2), MUSICIANS); break;
+    case 7: rawPositions = plusShape(cx,cy,r); break;
+    case 8: rawPositions = distributeAlongPolyline(polygonVertices(cx,cy,5,r,-Math.PI/2), MUSICIANS); break;
+    case 9: rawPositions = xShape(cx,cy,r); break;
+    case 10: rawPositions = distributeAlongPolyline(polygonVertices(cx,cy,8,r,-Math.PI/2), MUSICIANS); break;
+    default: rawPositions = pointsOnCircle(cx,cy,r, MUSICIANS); break;
   }
+  
+  // Apply fitFormationToBounds to ensure proper margins and collision resolution
+  return fitFormationToBounds(rawPositions, getBounds(), FORMATION_CLAMP_MARGIN, getScaledMinDist());
 }
 
 /* Interpositions “en ligne” entre chaque forme */
@@ -1346,8 +1417,19 @@ function xShape(cx,cy,r){
 function setStepTargets(stepIdx){
   const deltas = gameState.moves[stepIdx];
   const rawTargets = gameState.moveFrom.map((p,i)=>({x:p.x+deltas[i].dx, y:p.y+deltas[i].dy}));
-  const adjusted = resolveTargets(gameState.moveFrom, rawTargets);
-  gameState.moveTo = adjusted;
+  
+  // Check if this is the final step
+  const isFinalStep = stepIdx === gameState.moves.length - 1;
+  
+  // Set snap flag for final step
+  gameState.snapAtArrival = isFinalStep;
+  
+  // Use strength = 0.0 for final step to disable repulsion
+  const strength = isFinalStep ? 0.0 : 1.0;
+  const adjusted = resolveTargets(gameState.moveFrom, rawTargets, strength);
+  
+  // Apply fitFormationToBounds to ensure intermediate steps are safe on small fields
+  gameState.moveTo = fitFormationToBounds(adjusted, getBounds(), FORMATION_CLAMP_MARGIN, getScaledMinDist());
 }
 
 function gameLoop(){
@@ -1384,8 +1466,16 @@ function update(){
 
   const t = clamp(elapsed / gameState.moveDuration, 0, 1);
   for (let i=0;i<FORMATION.length;i++){
-    FORMATION[i].x = lerp(gameState.moveFrom[i].x, gameState.moveTo[i].x, t);
-    FORMATION[i].y = lerp(gameState.moveFrom[i].y, gameState.moveTo[i].y, t);
+    // Check if we should snap to exact targets
+    if (gameState.snapAtArrival && t > 0.985) {
+      // Hard snap to exact targets
+      FORMATION[i].x = gameState.moveTo[i].x;
+      FORMATION[i].y = gameState.moveTo[i].y;
+    } else {
+      // Normal interpolation
+      FORMATION[i].x = lerp(gameState.moveFrom[i].x, gameState.moveTo[i].x, t);
+      FORMATION[i].y = lerp(gameState.moveFrom[i].y, gameState.moveTo[i].y, t);
+    }
   }
 
   // Déplacement du joueur via joystick
