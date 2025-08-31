@@ -97,6 +97,37 @@ let hsState = {
   rafId: null
 };
 
+// Storage fallback for browsers with localStorage restrictions
+let localStorageAvailable = null; // Cached result
+let memScores = []; // In-memory fallback when localStorage unavailable
+
+// Detect localStorage availability with caching
+function canUseLocalStorage() {
+  if (localStorageAvailable !== null) return localStorageAvailable;
+  
+  try {
+    const testKey = '__jpm_storage_test__' + Math.random();
+    localStorage.setItem(testKey, 'test');
+    localStorage.removeItem(testKey);
+    localStorageAvailable = true;
+  } catch(_) {
+    localStorageAvailable = false;
+  }
+  
+  return localStorageAvailable;
+}
+
+// Convert character ID to display name
+function getCharacterDisplayName(charId) {
+  switch(charId) {
+    case 'john': return 'John Parade';
+    case 'minik': return 'Minik';
+    case 'amelie': return 'Amélie';
+    case 'candice': return 'Candice';
+    default: return charId ? charId.charAt(0).toUpperCase() + charId.slice(1) : 'JPM';
+  }
+}
+
 // Options d’envoi au repo (optionnel, si fournis)
 function getRepoConfig(){
   const repo = window.GH_REPO || document.querySelector('meta[name="gh-repo"]')?.content || '';
@@ -511,6 +542,7 @@ function ensureHighScoreUI(){
         gap: 10px;
         padding: 12px;
         justify-content: center;
+        align-items: center;
       }
       #highscore-close{
         appearance: none;
@@ -527,6 +559,12 @@ function ensureHighScoreUI(){
       }
       #highscore-close:hover{
         background: linear-gradient(#223b2d, #13261c);
+      }
+      #highscore-note{
+        font-size: 11px;
+        color: rgba(255,255,255,0.4);
+        font-style: italic;
+        margin-left: 8px;
       }
     `.trim();
     const style = document.createElement('style');
@@ -558,7 +596,11 @@ function ensureHighScoreUI(){
     closeBtn.textContent = 'Fermer';
     closeBtn.addEventListener('click', closeHighScore);
 
+    const note = document.createElement('span');
+    note.id = 'highscore-note';
+
     footer.appendChild(closeBtn);
+    footer.appendChild(note);
     card.appendChild(canvasHS);
     card.appendChild(footer);
     modal.appendChild(card);
@@ -595,6 +637,13 @@ function openHighScore(){
   hsState.entries = buildHighScoreTickerList(loadHighScores());
   hsState.offset = 0;
   hsState.lastTS = performance.now();
+  
+  // Update storage note
+  const note = document.getElementById('highscore-note');
+  if (note) {
+    note.textContent = canUseLocalStorage() ? '' : 'Scores non persistés (mode restreint)';
+  }
+  
   startHighScoreTicker();
 }
 
@@ -608,27 +657,39 @@ function closeHighScore(){
 }
 
 function loadHighScores(){
-  try {
-    const raw = localStorage.getItem(HS_STORAGE_KEY);
-    if (raw){
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr) && arr.length){
-        return normalizeScores(arr);
+  if (canUseLocalStorage()) {
+    try {
+      const raw = localStorage.getItem(HS_STORAGE_KEY);
+      if (raw){
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length){
+          return normalizeScores(arr);
+        }
       }
-    }
-  } catch(_){}
-  return [];
+    } catch(_){}
+    return [];
+  } else {
+    // Use in-memory fallback
+    return normalizeScores(memScores);
+  }
 }
 function saveHighScoreLocally(entry){
   const arr = loadHighScores();
   arr.push(entry);
   const trimmed = normalizeScores(arr).slice(0, 50);
-  try { localStorage.setItem(HS_STORAGE_KEY, JSON.stringify(trimmed)); } catch(_){}
+  
+  if (canUseLocalStorage()) {
+    try { localStorage.setItem(HS_STORAGE_KEY, JSON.stringify(trimmed)); } catch(_){}
+  } else {
+    // Use in-memory fallback
+    memScores = trimmed;
+  }
+  
   return trimmed;
 }
 function normalizeScores(arr){
   return arr.map(e=>({
-      name: (e.name||'---').toString().substring(0,8).toUpperCase(),
+      name: (e.name||'---').toString().substring(0,12).toUpperCase(),
       score: Math.max(0, parseInt(e.score||0,10)),
       dateISO: e.dateISO || new Date().toISOString()
     }))
@@ -2504,7 +2565,7 @@ function persistEndOfGameScore(didWin){
   const score = Math.floor((gameState.scoreTicks || 0) / 100);
   const now = new Date();
   const entry = {
-    name: (selectedCharacter || 'JPM').slice(0,8).toUpperCase(),
+    name: getCharacterDisplayName(selectedCharacter),
     score,
     dateISO: now.toISOString(),
     level: gameState.level || 0,
