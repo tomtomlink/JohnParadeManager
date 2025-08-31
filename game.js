@@ -117,6 +117,17 @@ function canUseLocalStorage() {
   return localStorageAvailable;
 }
 
+// Convert character ID to display name
+function getCharacterDisplayName(charId) {
+  switch(charId) {
+    case 'john': return 'John Parade';
+    case 'minik': return 'Minik';
+    case 'amelie': return 'Amélie';
+    case 'candice': return 'Candice';
+    default: return charId ? charId.charAt(0).toUpperCase() + charId.slice(1) : 'JPM';
+  }
+}
+
 // Options d’envoi au repo (optionnel, si fournis)
 function getRepoConfig(){
   const repo = window.GH_REPO || document.querySelector('meta[name="gh-repo"]')?.content || '';
@@ -678,7 +689,7 @@ function saveHighScoreLocally(entry){
 }
 function normalizeScores(arr){
   return arr.map(e=>({
-      name: (e.name||'---').toString().substring(0,8).toUpperCase(),
+      name: (e.name||'---').toString().substring(0,12).toUpperCase(),
       score: Math.max(0, parseInt(e.score||0,10)),
       dateISO: e.dateISO || new Date().toISOString()
     }))
@@ -2554,7 +2565,7 @@ function persistEndOfGameScore(didWin){
   const score = Math.floor((gameState.scoreTicks || 0) / 100);
   const now = new Date();
   const entry = {
-    name: (selectedCharacter || 'JPM').slice(0,8).toUpperCase(),
+    name: getCharacterDisplayName(selectedCharacter),
     score,
     dateISO: now.toISOString(),
     level: gameState.level || 0,
