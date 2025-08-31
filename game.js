@@ -1581,6 +1581,119 @@ function makeGrassPattern(context){
 }
 
 // ============================================================================
+// Football field rendering
+// ============================================================================
+function drawFootballFieldPortrait(b) {
+  // Save context state
+  ctx.save();
+  
+  // Clip to field bounds to prevent any drawing outside
+  ctx.beginPath();
+  ctx.rect(b.left, b.top, b.right - b.left, b.bottom - b.top);
+  ctx.clip();
+  
+  const fieldW = b.right - b.left;
+  const fieldH = b.bottom - b.top;
+  
+  // Optional mowing stripes - vertical alternating light/dark translucent strips
+  const stripeW = Math.max(8, fieldW / 20);
+  for (let x = b.left; x < b.right; x += stripeW) {
+    const isEven = Math.floor((x - b.left) / stripeW) % 2 === 0;
+    ctx.fillStyle = isEven ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)';
+    ctx.fillRect(x, b.top, stripeW, fieldH);
+  }
+  
+  // Yard lines - horizontal lines every 5 yards (21 lines for 0-100 yards)
+  ctx.strokeStyle = colors.line;
+  const step = fieldH / 20; // 100 yards / 20 = 5-yard increments
+  
+  for (let i = 0; i <= 20; i++) {
+    const y = b.top + i * step;
+    // Thicker lines for multiples of 25 yards (every 5 steps in 5-yard increments)
+    ctx.lineWidth = (i % 5 === 0) ? 3 : 1.5;
+    ctx.beginPath();
+    ctx.moveTo(b.left, y);
+    ctx.lineTo(b.right, y);
+    ctx.stroke();
+  }
+  
+  // Hash marks - short horizontal ticks at each yard (1-99), excluding multiples of 5
+  const hashW = 8; // 8px ticks as specified
+  const sidelineRatio = 0.4421875; // 70.75/160 ratio from each sideline
+  const leftHashX = b.left + fieldW * sidelineRatio;
+  const rightHashX = b.right - fieldW * sidelineRatio;
+  
+  ctx.lineWidth = 1;
+  for (let yard = 1; yard < 100; yard++) {
+    if (yard % 5 !== 0) { // Exclude multiples of 5
+      const y = b.top + (yard / 100) * fieldH;
+      
+      // Left hash mark
+      ctx.beginPath();
+      ctx.moveTo(leftHashX - hashW/2, y);
+      ctx.lineTo(leftHashX + hashW/2, y);
+      ctx.stroke();
+      
+      // Right hash mark
+      ctx.beginPath();
+      ctx.moveTo(rightHashX - hashW/2, y);
+      ctx.lineTo(rightHashX + hashW/2, y);
+      ctx.stroke();
+    }
+  }
+  
+  // Yard numbers at 10-yard increments (10,20,30,40,50,40,30,20,10)
+  const fontSize = Math.max(12, Math.min(fieldW * 0.08, 24));
+  ctx.font = `900 ${fontSize}px ${MENU_FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  
+  const numbers = [10, 20, 30, 40, 50, 40, 30, 20, 10];
+  for (let i = 0; i < numbers.length; i++) {
+    const yardNum = numbers[i];
+    const y = b.top + (i + 1) * 2 * step; // 10, 20, 30... yard positions
+    
+    // Left sideline - rotate -90° (bottom-to-top reading)
+    ctx.save();
+    ctx.translate(b.left + fontSize/2, y);
+    ctx.rotate(-Math.PI/2);
+    
+    // Dark stroke (shadow/outline)
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.strokeText(yardNum.toString(), 0, 0);
+    
+    // White fill
+    ctx.fillStyle = colors.line;
+    ctx.fillText(yardNum.toString(), 0, 0);
+    ctx.restore();
+    
+    // Right sideline - rotate +90° (top-to-bottom reading)
+    ctx.save();
+    ctx.translate(b.right - fontSize/2, y);
+    ctx.rotate(Math.PI/2);
+    
+    // Dark stroke (shadow/outline)
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.strokeText(yardNum.toString(), 0, 0);
+    
+    // White fill
+    ctx.fillStyle = colors.line;
+    ctx.fillText(yardNum.toString(), 0, 0);
+    ctx.restore();
+  }
+  
+  // Outer border - white rectangle just inside the bounds
+  ctx.strokeStyle = colors.line;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(b.left, b.top, fieldW, fieldH);
+  
+  // Restore context state
+  ctx.restore();
+}
+
+// ============================================================================
 // Rendu scène
 // ============================================================================
 function render(){
@@ -1598,9 +1711,7 @@ function render(){
   ctx.fillRect(b.right,b.top,CANVAS_W-b.right,b.bottom-b.top);
 
   // Terrain
-  ctx.strokeStyle=colors.line;
-  ctx.lineWidth=2;
-  ctx.strokeRect(b.left,b.top,b.right-b.left,b.bottom-b.top);
+  drawFootballFieldPortrait(b);
 
   // Foule
   drawCrowd();
