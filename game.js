@@ -1027,6 +1027,68 @@ function lerp(a,b,t){ return a + (b-a)*t; }
 function lerpPt(p,q,t){ return {x:lerp(p.x,q.x,t), y:lerp(p.y,q.y,t)}; }
 function easeInOutCubic(t){ return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2; }
 
+// Formation fitting utilities
+function getScaledMinDist(){
+  const b = getBounds();
+  const minSide = Math.min(b.right - b.left, b.bottom - b.top);
+  return clamp(26 * (minSide / 360), 18, 26);
+}
+
+function fitFormationToBounds(pts, b, margin = PNJ_RADIUS, minDist = 26){
+  if (pts.length === 0) return pts;
+  
+  const cx = (b.left + b.right) / 2;
+  const cy = (b.top + b.bottom) / 2;
+  
+  // Binary search for the best scale factor
+  let low = 0, high = 1;
+  let bestScale = 1;
+  
+  for (let iter = 0; iter < 16; iter++) {
+    const scale = (low + high) / 2;
+    let valid = true;
+    
+    // Check bounds constraint
+    for (let i = 0; i < pts.length && valid; i++) {
+      const x = cx + (pts[i].x - cx) * scale;
+      const y = cy + (pts[i].y - cy) * scale;
+      if (x < b.left + margin || x > b.right - margin || 
+          y < b.top + margin || y > b.bottom - margin) {
+        valid = false;
+      }
+    }
+    
+    // Check minimum distance constraint
+    if (valid) {
+      for (let i = 0; i < pts.length && valid; i++) {
+        for (let j = i + 1; j < pts.length && valid; j++) {
+          const x1 = cx + (pts[i].x - cx) * scale;
+          const y1 = cy + (pts[i].y - cy) * scale;
+          const x2 = cx + (pts[j].x - cx) * scale;
+          const y2 = cy + (pts[j].y - cy) * scale;
+          const d = Math.hypot(x2 - x1, y2 - y1);
+          if (d < minDist) {
+            valid = false;
+          }
+        }
+      }
+    }
+    
+    if (valid) {
+      bestScale = scale;
+      low = scale;
+    } else {
+      high = scale;
+    }
+  }
+  
+  // Apply the best scale
+  return pts.map(p => ({
+    x: cx + (p.x - cx) * bestScale,
+    y: cy + (p.y - cy) * bestScale
+  }));
+}
+
 function showBanner(text, ms=1400){
   const b = document.getElementById('level-banner');
   if (!b) return;
@@ -1195,7 +1257,11 @@ function buildSmoothPathMoves(startPositions, endPositions, steps, level){
       stepTargets.push(target);
     }
 
-    const adjusted = resolveTargets(prev, stepTargets);
+    // Use reduced strength for the last step to soften collision resolution
+    const isLastStep = s === steps;
+    const strength = isLastStep ? 0.3 : 1.0;
+    
+    const adjusted = resolveTargets(prev, stepTargets, strength);
     path.push(adjusted.map((p,i)=>({dx:p.x-prev[i].x, dy:p.y-prev[i].y})));
     prev = adjusted;
   }
@@ -1209,7 +1275,7 @@ function buildSmoothPathMoves(startPositions, endPositions, steps, level){
   return path;
 }
 
-function resolveTargets(fromPositions, targetPositions){
+function resolveTargets(fromPositions, targetPositions, strength = 1.0){
   const N = targetPositions.length;
   let newPos = targetPositions.map(p=>({x:p.x,y:p.y}));
   for (let i=0;i<N;i++){
@@ -1224,7 +1290,7 @@ function resolveTargets(fromPositions, targetPositions){
         const d=Math.hypot(dx,dy);
         if (d<MIN_DIST){
           changed=true;
-          const nx=dx/(d||1), ny=dy/(d||1), push=(MIN_DIST-d)/2;
+          const nx=dx/(d||1), ny=dy/(d||1), push=(MIN_DIST-d)/2 * strength;
           newPos[i].x-=nx*push; newPos[i].y-=ny*push;
           newPos[j].x+=nx*push; newPos[j].y+=ny*push;
           newPos[i]=clampIntoBounds(newPos[i], (i===12)? ZONE_RADIUS : PNJ_RADIUS);
@@ -1241,19 +1307,25 @@ function resolveTargets(fromPositions, targetPositions){
 function getLevelFinalShapePositions(level){
   const b=getBounds(), cx=(b.left+b.right)/2, cy=(b.top+b.bottom)/2;
   const w=(b.right-b.left), h=(b.bottom-b.top), r=Math.min(w,h)*.36;
+  const minDist = getScaledMinDist();
+  
+  let finalPositions;
   switch(level){
-    case 1: return distributeAlongPolyline(diamondVertices(cx,cy,r), MUSICIANS);
-    case 2: return pointsOnCircle(cx,cy,r, MUSICIANS);
-    case 3: return grid5x5(cx,cy, Math.min(w,h)*.58);
-    case 4: return distributeAlongPolyline(starVertices(cx,cy,r*.55,r,-Math.PI/2), MUSICIANS);
-    case 5: return distributeAlongPolyline(polygonVertices(cx,cy,3,r,-Math.PI/2), MUSICIANS);
-    case 6: return distributeAlongPolyline(polygonVertices(cx,cy,6,r,-Math.PI/2), MUSICIANS);
-    case 7: return plusShape(cx,cy,r);
-    case 8: return distributeAlongPolyline(polygonVertices(cx,cy,5,r,-Math.PI/2), MUSICIANS);
-    case 9: return xShape(cx,cy,r);
-    case 10:return distributeAlongPolyline(polygonVertices(cx,cy,8,r,-Math.PI/2), MUSICIANS);
-    default:return pointsOnCircle(cx,cy,r, MUSICIANS);
+    case 1: finalPositions = distributeAlongPolyline(diamondVertices(cx,cy,r), MUSICIANS); break;
+    case 2: finalPositions = pointsOnCircle(cx,cy,r, MUSICIANS); break;
+    case 3: finalPositions = grid5x5(cx,cy, Math.min(w,h)*.58); break;
+    case 4: finalPositions = distributeAlongPolyline(starVertices(cx,cy,r*.55,r,-Math.PI/2), MUSICIANS); break;
+    case 5: finalPositions = distributeAlongPolyline(polygonVertices(cx,cy,3,r,-Math.PI/2), MUSICIANS); break;
+    case 6: finalPositions = distributeAlongPolyline(polygonVertices(cx,cy,6,r,-Math.PI/2), MUSICIANS); break;
+    case 7: finalPositions = plusShape(cx,cy,r); break;
+    case 8: finalPositions = distributeAlongPolyline(polygonVertices(cx,cy,5,r,-Math.PI/2), MUSICIANS); break;
+    case 9: finalPositions = xShape(cx,cy,r); break;
+    case 10: finalPositions = distributeAlongPolyline(polygonVertices(cx,cy,8,r,-Math.PI/2), MUSICIANS); break;
+    default: finalPositions = pointsOnCircle(cx,cy,r, MUSICIANS); break;
   }
+  
+  // Apply formation fitting to ensure shapes stay within bounds and maintain proper spacing
+  return fitFormationToBounds(finalPositions, b, PNJ_RADIUS, minDist);
 }
 
 /* Interpositions “en ligne” entre chaque forme */
@@ -1346,7 +1418,12 @@ function xShape(cx,cy,r){
 function setStepTargets(stepIdx){
   const deltas = gameState.moves[stepIdx];
   const rawTargets = gameState.moveFrom.map((p,i)=>({x:p.x+deltas[i].dx, y:p.y+deltas[i].dy}));
-  const adjusted = resolveTargets(gameState.moveFrom, rawTargets);
+  
+  // Use reduced strength for the final step to soften collision resolution
+  const isFinalStep = stepIdx === gameState.moves.length - 1;
+  const strength = isFinalStep ? 0.3 : 1.0;
+  
+  const adjusted = resolveTargets(gameState.moveFrom, rawTargets, strength);
   gameState.moveTo = adjusted;
 }
 
