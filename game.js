@@ -1806,7 +1806,7 @@ function drawAdBoards(){
   const h = 22;
 
   const bottomY = Math.min(CANVAS_H - h, b.bottom + pad);
-  drawAdStrip(b.left, bottomY, b.right - b.left, h, 'horizontal', "Prod-S Arena");
+  drawAdStrip(b.left, bottomY, b.right - b.left, h, 'horizontal', "Je vaux ce que je veux", false, true, true);
 
   const leftX = Math.max(0, b.left - h - pad);
   drawAdStrip(leftX, b.top, h, b.bottom - b.top, 'vertical', "Prod-S Arena", false);
@@ -1814,7 +1814,7 @@ function drawAdBoards(){
   const rightX = Math.min(CANVAS_W - h, b.right + pad);
   drawAdStrip(rightX, b.top, h, b.bottom - b.top, 'vertical', "Prod-S Arena", true);
 }
-function drawAdStrip(x, y, w, h, orientation, label, flip180=false){
+function drawAdStrip(x, y, w, h, orientation, label, flip180=false, centeredOnce=false, italic=false){
   ctx.save();
 
   roundRect(ctx, x, y, w, h, 6);
@@ -1842,20 +1842,39 @@ function drawAdStrip(x, y, w, h, orientation, label, flip180=false){
 
   if (orientation==='horizontal'){
     let fontSize = h >= 26 ? 16 : 14;
-    ctx.font = '800 ' + fontSize + 'px Poppins, system-ui, sans-serif';
-    const metrics = ctx.measureText(label);
-    const step = Math.max(metrics.width + 32, 120);
-    const baseY = y + h/2;
-
-    for (let px = x + 12; px < x + w - 12; px += step){
+    const fontWeight = '800';
+    const fontFamily = 'Poppins, system-ui, sans-serif';
+    ctx.font = (italic ? 'italic ' : '') + fontWeight + ' ' + fontSize + 'px ' + fontFamily;
+    
+    if (centeredOnce) {
+      // Draw only once, centered in the strip
+      const centerX = x + w/2;
+      const centerY = y + h/2;
+      ctx.textAlign = 'center';
+      
       ctx.lineWidth = 3;
       ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-      ctx.strokeText(label, px, baseY);
-      ctx.fillText(label, px, baseY);
+      ctx.strokeText(label, centerX, centerY);
+      ctx.fillText(label, centerX, centerY);
+    } else {
+      // Original repeated behavior
+      ctx.textAlign = 'left';
+      const metrics = ctx.measureText(label);
+      const step = Math.max(metrics.width + 32, 120);
+      const baseY = y + h/2;
+
+      for (let px = x + 12; px < x + w - 12; px += step){
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+        ctx.strokeText(label, px, baseY);
+        ctx.fillText(label, px, baseY);
+      }
     }
   } else {
     let fontSize = w >= 26 ? 16 : 14;
-    ctx.font = '800 ' + fontSize + 'px Poppins, system-ui, sans-serif';
+    const fontWeight = '800';
+    const fontFamily = 'Poppins, system-ui, sans-serif';
+    ctx.font = (italic ? 'italic ' : '') + fontWeight + ' ' + fontSize + 'px ' + fontFamily;
 
     ctx.translate(x + w/2, y + h/2);
     ctx.rotate(-Math.PI/2);
@@ -2111,6 +2130,15 @@ function drawLoseOverlay() {
   const btnH = 40;
   const btnX = cx - btnW/2;
   const btnY = cardY + cardH - btnH - 16;
+
+  // Display score above the restart button
+  const displayScore = Math.floor((gameState.scoreTicks || 0) / 100);
+  ctx.font = '700 16px ' + HUD_NUM_FONT;
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.strokeText('Score: ' + displayScore, cx, btnY - 14);
+  ctx.fillStyle = '#eaf3ff';
+  ctx.fillText('Score: ' + displayScore, cx, btnY - 14);
 
   roundRect(ctx, btnX, btnY, btnW, btnH, 10);
   const grad = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH);
