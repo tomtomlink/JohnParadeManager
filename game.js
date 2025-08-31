@@ -644,6 +644,15 @@ function openHighScore(){
     note.textContent = canUseLocalStorage() ? '' : 'Scores non persistés (mode restreint)';
   }
   
+  // Ensure canvas is properly resized when modal opens
+  resizeHighScoreCanvas();
+  
+  // Focus management for accessibility
+  const closeBtn = document.getElementById('highscore-close');
+  if (closeBtn) {
+    closeBtn.focus();
+  }
+  
   startHighScoreTicker();
 }
 
@@ -654,6 +663,12 @@ function closeHighScore(){
   modal.style.display = 'none';
   modal.setAttribute('aria-hidden','true');
   hsState.visible = false;
+  
+  // Return focus to the High Score button for accessibility
+  const hsBtn = document.getElementById('highscore-btn');
+  if (hsBtn) {
+    hsBtn.focus();
+  }
 }
 
 function loadHighScores(){
