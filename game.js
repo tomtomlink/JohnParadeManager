@@ -18,15 +18,26 @@ let CANVAS_W = 360, CANVAS_H = 640;
 const MUSICIANS = 25;
 const ROWS = 5, COLS = 5;
 const FORMATION = [];
-const PNJ_RADIUS = 12;
-const ZONE_RADIUS = 22;
+
+// Base radii and scales (for desktop/full size)
+const BASE_PNJ_RADIUS = 12;
+const BASE_PLAYER_RADIUS = 16;
+const BASE_ZONE_RADIUS = 22;
 const FOOT_OFFSET = 18;
-const SCALE_PLAYER = 1.35;
-const SCALE_PNJ = 1.25;
+const BASE_SCALE_PLAYER = 1.35;
+const BASE_SCALE_PNJ = 1.25;
+
+// Responsive computed values (will be set by getResponsiveScale)
+let PNJ_RADIUS = BASE_PNJ_RADIUS;
+let PLAYER_RADIUS = BASE_PLAYER_RADIUS;
+let ZONE_RADIUS = BASE_ZONE_RADIUS;
+let SCALE_PLAYER = BASE_SCALE_PLAYER;
+let SCALE_PNJ = BASE_SCALE_PNJ;
+let MIN_DIST = 26;
+let FORMATION_CLAMP_MARGIN = 26;
 
 const MOVE_DURATION_BASE = 2000;
 const MAX_OUT_ZONE_MS = 5000; // 5 secondes de compte à rebours
-const MIN_DIST = 26;
 
 let PAD_LR = 22;
 let PAD_TOP = 40;
@@ -1027,6 +1038,25 @@ function lerp(a,b,t){ return a + (b-a)*t; }
 function lerpPt(p,q,t){ return {x:lerp(p.x,q.x,t), y:lerp(p.y,q.y,t)}; }
 function easeInOutCubic(t){ return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2; }
 
+// Responsive scaling function
+function getResponsiveScale(){
+  const b = getBounds();
+  const minSide = Math.min(b.right - b.left, b.bottom - b.top);
+  return clamp(0.85, minSide / 420, 1.0);
+}
+
+// Update responsive values based on current scale
+function updateResponsiveValues(){
+  const s = getResponsiveScale();
+  PNJ_RADIUS = Math.round(BASE_PNJ_RADIUS * s);
+  PLAYER_RADIUS = Math.round(BASE_PLAYER_RADIUS * s);
+  ZONE_RADIUS = Math.round(BASE_ZONE_RADIUS * s);
+  SCALE_PLAYER = BASE_SCALE_PLAYER * s;
+  SCALE_PNJ = BASE_SCALE_PNJ * s;
+  MIN_DIST = Math.round(2.2 * PNJ_RADIUS);
+  FORMATION_CLAMP_MARGIN = Math.max(26, Math.round(2.5 * PNJ_RADIUS));
+}
+
 function showBanner(text, ms=1400){
   const b = document.getElementById('level-banner');
   if (!b) return;
@@ -1052,6 +1082,9 @@ function resizeCanvas(){
   canvas.height = Math.round(CANVAS_H * dpr);
   ctx.setTransform(1,0,0,1,0,0);
   ctx.scale(dpr,dpr);
+
+  // Update responsive scaling values
+  updateResponsiveValues();
 }
 
 function startGame(){
@@ -1149,7 +1182,7 @@ function initFormation(){
     for (let col=0; col<COLS; col++){
       let x = centerX + (col-2)*spacing + (Math.abs(row-2)*spacing/2)*(col-2>0?1:-1);
       let y = topY + row*spacing;
-      FORMATION.push(clampIntoBounds({x,y}, PNJ_RADIUS));
+      FORMATION.push(clampIntoBounds({x,y}, FORMATION_CLAMP_MARGIN));
     }
   }
 }
@@ -1213,7 +1246,7 @@ function resolveTargets(fromPositions, targetPositions){
   const N = targetPositions.length;
   let newPos = targetPositions.map(p=>({x:p.x,y:p.y}));
   for (let i=0;i<N;i++){
-    newPos[i] = clampIntoBounds(newPos[i], (i===12)? ZONE_RADIUS : PNJ_RADIUS);
+    newPos[i] = clampIntoBounds(newPos[i], (i===12)? PLAYER_RADIUS : PNJ_RADIUS);
   }
   let changed=true, iter=0;
   while(changed && iter<12){
@@ -1227,8 +1260,8 @@ function resolveTargets(fromPositions, targetPositions){
           const nx=dx/(d||1), ny=dy/(d||1), push=(MIN_DIST-d)/2;
           newPos[i].x-=nx*push; newPos[i].y-=ny*push;
           newPos[j].x+=nx*push; newPos[j].y+=ny*push;
-          newPos[i]=clampIntoBounds(newPos[i], (i===12)? ZONE_RADIUS : PNJ_RADIUS);
-          newPos[j]=clampIntoBounds(newPos[j], (j===12)? ZONE_RADIUS : PNJ_RADIUS);
+          newPos[i]=clampIntoBounds(newPos[i], (i===12)? PLAYER_RADIUS : PNJ_RADIUS);
+          newPos[j]=clampIntoBounds(newPos[j], (j===12)? PLAYER_RADIUS : PNJ_RADIUS);
         }
       }
     }
@@ -1271,7 +1304,7 @@ function getIntermediateLinePositions(level){
     for (let i=0;i<count;i++){
       pts.push({x:cx, y: top + stepY*(i+1)});
     }
-    return pts.map(p=>clampIntoBounds(p, PNJ_RADIUS));
+    return pts.map(p=>clampIntoBounds(p, FORMATION_CLAMP_MARGIN));
   } else if (kind === 'two'){
     const topY = cy - h*0.22;
     const botY = cy + h*0.22;
@@ -1280,7 +1313,7 @@ function getIntermediateLinePositions(level){
     return [
       ...lineAcrossWidth(topY, nTop, b),
       ...lineAcrossWidth(botY, nBot, b)
-    ].map(p=>clampIntoBounds(p, PNJ_RADIUS));
+    ].map(p=>clampIntoBounds(p, FORMATION_CLAMP_MARGIN));
   } else {
     const off = h*0.2;
     const yTop = cy - off, yMid = cy, yBot = cy + off;
@@ -1291,7 +1324,7 @@ function getIntermediateLinePositions(level){
       ...lineAcrossWidth(yTop, nTop, b),
       ...lineAcrossWidth(yMid, nMid, b),
       ...lineAcrossWidth(yBot, nBot, b)
-    ].map(p=>clampIntoBounds(p, PNJ_RADIUS));
+    ].map(p=>clampIntoBounds(p, FORMATION_CLAMP_MARGIN));
   }
 }
 function lineAcrossWidth(y, n, b){
@@ -1319,10 +1352,10 @@ function distributeAlongPolyline(verts,count){
     if (segIdx>=segs.length) pts.push({...segs[segs.length-1].q});
     else { const s=segs[segIdx], t=(target-segPos)/(s.len||1); pts.push(lerpPt(s.p,s.q,t)); }
   }
-  return pts.map(p=>clampIntoBounds(p, PNJ_RADIUS));
+  return pts.map(p=>clampIntoBounds(p, FORMATION_CLAMP_MARGIN));
 }
-function pointsOnCircle(cx,cy,r,count){ const pts=[]; for(let i=0;i<count;i++){const a=-Math.PI/2+i*2*Math.PI/count; pts.push({x:cx+Math.cos(a)*r, y:cy+Math.sin(a)*r});} return pts.map(p=>clampIntoBounds(p, PNJ_RADIUS)); }
-function grid5x5(cx,cy,size){ const pts=[]; const step=size/4, sx=cx-size/2, sy=cy-size/2; for(let r=0;r<5;r++){for(let c=0;c<5;c++){pts.push({x:sx+c*step,y:sy+r*step});}} return pts.map(p=>clampIntoBounds(p, PNJ_RADIUS)); }
+function pointsOnCircle(cx,cy,r,count){ const pts=[]; for(let i=0;i<count;i++){const a=-Math.PI/2+i*2*Math.PI/count; pts.push({x:cx+Math.cos(a)*r, y:cy+Math.sin(a)*r});} return pts.map(p=>clampIntoBounds(p, FORMATION_CLAMP_MARGIN)); }
+function grid5x5(cx,cy,size){ const pts=[]; const step=size/4, sx=cx-size/2, sy=cy-size/2; for(let r=0;r<5;r++){for(let c=0;c<5;c++){pts.push({x:sx+c*step,y:sy+r*step});}} return pts.map(p=>clampIntoBounds(p, FORMATION_CLAMP_MARGIN)); }
 function plusShape(cx,cy,r){
   const pts=[], step=r/4;
   for(let i=-2;i<=2;i++) pts.push({x:cx,y:cy+i*step});
@@ -1331,7 +1364,7 @@ function plusShape(cx,cy,r){
     const k=pts.length, off=.6+.2*((k%4)-1.5);
     pts.push({x:cx+off*step,y:cy+off*step});
   }
-  return pts.slice(0,MUSICIANS).map(p=>clampIntoBounds(p, PNJ_RADIUS));
+  return pts.slice(0,MUSICIANS).map(p=>clampIntoBounds(p, FORMATION_CLAMP_MARGIN));
 }
 function xShape(cx,cy,r){
   const pts=[], step=r/4;
@@ -1340,7 +1373,7 @@ function xShape(cx,cy,r){
   while(pts.length<MUSICIANS){
     pts.push({x:cx+(Math.random()*.5-.25)*step,y:cy+(Math.random()*.5-.25)*step});
   }
-  return pts.slice(0,MUSICIANS).map(p=>clampIntoBounds(p, PNJ_RADIUS));
+  return pts.slice(0,MUSICIANS).map(p=>clampIntoBounds(p, FORMATION_CLAMP_MARGIN));
 }
 
 function setStepTargets(stepIdx){
@@ -1396,7 +1429,7 @@ function update(){
     const vy = J.dy * PLAYER_SPEED;
     const nx = gameState.player.x + vx * dtSec;
     const ny = gameState.player.y + vy * dtSec;
-    const clamped = clampIntoBounds({x:nx, y:ny}, 30);
+    const clamped = clampIntoBounds({x:nx, y:ny}, PLAYER_RADIUS);
     gameState.player.x = clamped.x;
     gameState.player.y = clamped.y;
   }
@@ -1553,7 +1586,7 @@ function getEventPointFromClient(clientX, clientY){
   const rect = canvas.getBoundingClientRect();
   const x = clientX - rect.left;
   const y = clientY - rect.top;
-  return clampIntoBounds({x,y}, 30);
+  return clampIntoBounds({x,y}, PLAYER_RADIUS);
 }
 
 // ============================================================================
