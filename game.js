@@ -1520,9 +1520,8 @@ function update(){
       gameState.player.outZoneMs += 16;
       if (gameState.player.outZoneMs >= MAX_OUT_ZONE_MS) {
         endGame();
-      } else {
-        gameState.scoreTicks = Math.max(0, gameState.scoreTicks - 1);
       }
+      // Score is frozen while outside zone (no decrement)
     }
   }
 
@@ -1864,8 +1863,22 @@ function render(){
   // HUD
   drawCanvasHUD();
 
-  // Alerte hors zone
-  drawOutOfZoneAlert();
+  // Blinking red border when out of zone (after grace period)
+  if (gameState) {
+    const now = performance.now();
+    const inGrace = now < gameState.graceUntil;
+    if (!inGrace && !isPlayerInZone()) {
+      const pulse = 0.5 + 0.5 * Math.sin(now * 0.008); // Slower pulse
+      const alpha = 0.3 + 0.4 * pulse;
+      
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = '#ff5050';
+      ctx.lineWidth = 4 * 1.3; // +30% thickness = 4 * 1.3 = 5.2
+      ctx.strokeRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.restore();
+    }
+  }
 
   // Overlays
   if (gameState && gameState.loseActive) drawLoseOverlay();
@@ -2031,7 +2044,13 @@ function drawCanvasHUD() {
 
   const displayScore = Math.floor((gameState.scoreTicks || 0) / 100);
   const line1 = 'Niveau ' + gameState.level;
-  const line2 = 'Score: ' + displayScore;
+  
+  // Check if player is out of zone after grace period
+  const now = performance.now();
+  const inGrace = now < gameState.graceUntil;
+  const playerOutOfZone = !inGrace && !isPlayerInZone();
+  
+  const line2 = playerOutOfZone ? 'Hors Zone' : 'Score: ' + displayScore;
 
   ctx.save();
   const r = 12;
@@ -2069,103 +2088,8 @@ function drawCanvasHUD() {
   ctx.restore();
 }
 
-function drawOutOfZoneAlert(){
-  if (!gameState) return;
-  const now = performance.now();
-  if (now < gameState.graceUntil) return;
-  if (isPlayerInZone()) return;
 
-  const idx = gameState.playerIdx;
-  const zoneX = FORMATION[idx].x;
-  const zoneY = FORMATION[idx].y + FOOT_OFFSET * SCALE_PNJ;
-  const R = ZONE_RADIUS;
 
-  const titleSize = Math.round(Math.min(44, CANVAS_W * 0.12));
-  const timeSize = Math.round(Math.min(36, CANVAS_W * 0.10));
-  const boxW = Math.min(CANVAS_W - 40, 12 + Math.max(240, CANVAS_W * 0.70));
-  const boxH = titleSize + timeSize + 38;
-
-  let rx = CANVAS_W/2 - boxW/2;
-  let ry = CANVAS_H/2 - boxH/2;
-
-  const distToCenter = Math.hypot(zoneX - CANVAS_W/2, zoneY - CANVAS_H/2);
-  const nearCenterThresh = Math.min(CANVAS_W, CANVAS_H) * 0.12;
-  if (distToCenter <= nearCenterThresh){
-    ry = CANVAS_H - boxH - 20;
-  }
-
-  if (circleIntersectsRect(zoneX, zoneY, R, rx, ry, boxW, boxH)) {
-    if (zoneY < CANVAS_H/2){
-      ry = CANVAS_H - boxH - 20;
-    } else {
-      ry = 20;
-    }
-    if (circleIntersectsRect(zoneX, zoneY, R, rx, ry, boxW, boxH)){
-      if (ry < CANVAS_H/2){
-        ry = Math.max(20, zoneY - R - boxH - 12);
-      } else {
-        ry = Math.min(CANVAS_H - boxH - 20, zoneY + R + 12);
-      }
-    }
-  }
-
-  const remainingMs = Math.max(0, MAX_OUT_ZONE_MS - (gameState.player.outZoneMs || 0));
-  const secs = (remainingMs / 1000).toFixed(2) + ' s';
-
-  const pulse = 0.5 + 0.5 * Math.sin(now * 0.012);
-  const alpha = 0.25 + 0.45 * pulse;
-
-  const cx = rx + boxW/2;
-
-  ctx.save();
-  ctx.globalAlpha = alpha * 0.9;
-  ctx.fillStyle = 'rgba(255,80,80,0.22)';
-  ctx.beginPath(); ctx.ellipse(rx + boxW/2, ry + boxH/2, boxW*0.60, boxH*0.85, 0, 0, 2*Math.PI); ctx.fill();
-
-  ctx.globalAlpha = 1;
-  ctx.beginPath();
-  roundRect(ctx, rx, ry, boxW, boxH, 14);
-  const bgGrad = ctx.createLinearGradient(rx, ry, rx, ry + boxH);
-  bgGrad.addColorStop(0, 'rgba(20,30,25,0.92)');
-  bgGrad.addColorStop(1, 'rgba(15,24,19,0.92)');
-  ctx.fillStyle = bgGrad;
-  ctx.fill();
-
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = 'rgba(255,80,80,' + (0.35 + 0.35*pulse).toFixed(3) + ')';
-  ctx.stroke();
-
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = '900 ' + titleSize + 'px ' + HUD_TITLE_FONT;
-
-  ctx.lineWidth = 6;
-  ctx.strokeStyle = 'rgba(0,0,0,0.65)';
-  ctx.strokeText('HORS ZONE', cx, ry + 16 + titleSize/2);
-
-  ctx.fillStyle = '#fff4f4';
-  ctx.fillText('HORS ZONE', cx, ry + 16 + titleSize/2);
-
-  ctx.font = '700 ' + timeSize + 'px ' + HUD_NUM_FONT;
-  const ty = ry + 16 + titleSize + 10 + timeSize/2;
-
-  ctx.lineWidth = 5;
-  ctx.strokeStyle = 'rgba(0,0,0,0.65)';
-  ctx.strokeText(secs, cx, ty);
-
-  ctx.fillStyle = '#ffe1e1';
-  ctx.fillText(secs, cx, ty);
-
-  ctx.restore();
-}
-
-function circleIntersectsRect(cx, cy, r, rx, ry, rw, rh){
-  const nearestX = clamp(cx, rx, rx + rw);
-  const nearestY = clamp(cy, ry, ry + rh);
-  const dx = cx - nearestX;
-  const dy = cy - nearestY;
-  return (dx*dx + dy*dy) <= r*r;
-}
 
 // ============================================================================
 // Overlays victoire/défaite
@@ -2240,8 +2164,9 @@ function drawWinOverlay() {
   const fieldH = b.bottom - b.top;
   const cx = (b.left + b.right) / 2;
 
-  const cardW = Math.min(360, fieldW * 0.86);
-  const cardH = 180;
+  // Enlarge the overlay
+  const cardW = Math.min(420, fieldW * 0.9);
+  const cardH = 240;
   const cardX = cx - cardW / 2;
   const cardY = b.top + (fieldH - cardH)/2;
 
@@ -2266,9 +2191,20 @@ function drawWinOverlay() {
   const lines = msg.split('\n');
   for (let i=0;i<lines.length;i++){
     const line = lines[i];
-    ctx.strokeText(line, cx, cardY + 58 + i*22);
-    ctx.fillText(line, cx, cardY + 58 + i*22);
+    ctx.strokeText(line, cx, cardY + 45 + i*22);
+    ctx.fillText(line, cx, cardY + 45 + i*22);
   }
+
+  // Display final score with bonus
+  const baseScore = Math.floor((gameState.scoreTicks || 0) / 100);
+  const finalScore = baseScore + 50; // Victory bonus
+  ctx.font = '700 18px ' + HUD_NUM_FONT;
+  ctx.fillStyle = '#eaf3ff';
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.lineWidth = 3;
+  const scoreText = `Score final: ${finalScore} (${baseScore} + 50 bonus)`;
+  ctx.strokeText(scoreText, cx, cardY + 130);
+  ctx.fillText(scoreText, cx, cardY + 130);
 
   const btnW = Math.min(220, cardW - 40);
   const btnH = 42;
@@ -2577,7 +2513,13 @@ function winGame(){
 // Ajout sauvegarde + rafraîchissement High Score live
 function persistEndOfGameScore(didWin){
   if (!gameState) return;
-  const score = Math.floor((gameState.scoreTicks || 0) / 100);
+  let score = Math.floor((gameState.scoreTicks || 0) / 100);
+  
+  // Add +50 bonus on victory
+  if (didWin) {
+    score += 50;
+  }
+  
   const now = new Date();
   const entry = {
     name: getCharacterDisplayName(selectedCharacter),
