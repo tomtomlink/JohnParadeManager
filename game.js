@@ -2187,7 +2187,7 @@ function drawWinOverlay() {
   ctx.fillStyle = '#2fe38a';
   ctx.strokeStyle = 'rgba(0,0,0,0.6)';
   ctx.lineWidth = 4;
-  const msg = "Félicitations !\nCordialement,\nrespectueusement, et avec bienveillance.";
+  const msg = "Félicitations !\nCordialement,\nrespectueusement,\net avec bienveillance.";
   const lines = msg.split('\n');
   for (let i=0;i<lines.length;i++){
     const line = lines[i];
